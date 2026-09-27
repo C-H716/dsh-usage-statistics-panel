@@ -69,10 +69,15 @@ import type { UsageHttpRequest, UsageHttpResponse } from '../src/context-types.t
 
 function memoryStore(rows: UsageDayRow[]): Parameters<typeof aggregateRange>[0] {
   return {
+    // No hour rows: the aggregate then falls back to the day rows, which is
+    // exactly the path these fixtures (written before the hour table) pin.
+    async rangeHourRows() {
+      return []
+    },
     async rangeRows(from: string, to: string) {
       return rows.filter((r) => r.day >= from && r.day <= to)
     },
-  } as Parameters<typeof aggregateRange>[0]
+  } as unknown as Parameters<typeof aggregateRange>[0]
 }
 
 describe('aggregateRange', () => {

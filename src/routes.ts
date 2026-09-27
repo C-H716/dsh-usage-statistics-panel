@@ -14,6 +14,7 @@ import type { UsageHttpRequest, UsageHttpResponse, UsageWebRoute } from './conte
 import { UsageStore } from './store.ts'
 import { UsageCollector } from './collector.ts'
 import { aggregateSamples } from './query.ts'
+import { dayOfHourKey } from './shared.ts'
 import type { UsageSample } from './query.ts'
 import type { BackfillStatus, UsageStatsRange, UsageStatsRequest } from './wire.ts'
 import { UsageError, readJsonBody, writeError, writeJson } from './wire.ts'
@@ -61,6 +62,15 @@ export function resolveRange(req: UsageStatsRequest, now = new Date()): { from: 
   }
   const toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 0)
   switch (req.range) {
+    case 'today': {
+      // A single local calendar day: the panel's narrowest preset.
+      return { from: day(toDate), to: day(toDate) }
+    }
+    case 'yesterday': {
+      const from = new Date(toDate)
+      from.setDate(from.getDate() - 1)
+      return { from: day(from), to: day(from) }
+    }
     case '7':
     case '14':
     case '30':
@@ -99,30 +109,68 @@ export function resolveRange(req: UsageStatsRequest, now = new Date()): { from: 
   }
 }
 
-/** Build the aggregate for a range from the store rows. The per-row request
- *  and turn counts are yielded lazily as markers, so no intermediate array
- *  is materialized regardless of range size. */
+/** Build the aggregate for a range from the store rows.
+ *
+ *  Token traffic and per-call counts are read from the HOUR table, not the day
+ *  table: a cost figure is only correct when the hour of each call is known,
+ *  because DeepSeek's peak windows bill at twice the off-peak rate. Turn counts
+ *  stay on the day table, which is where the collector records them (a turn
+ *  marker carries no tokens and therefore no hour).
+ *
+ *  A store whose hour table is still empty — a build that predates it, with the
+ *  one-time rebuild not yet finished — falls back to the day rows so the panel
+ *  keeps rendering; those samples carry no hour and are priced at the off-peak
+ *  rate, which understates a peak-heavy range rather than overstating it.
+ *
+ *  Every count is yielded lazily as a marker, so no intermediate array is
+ *  materialized regardless of range size. */
 export async function aggregateRange(store: UsageStore, from: string, to: string): Promise<UsageStatsRange> {
-  const rows = await store.rangeRows(from, to)
+  const hourRows = await store.rangeHourRows(`${from}T00`, `${to}T23`)
+  const dayRows = await store.rangeRows(from, to)
   const samples = (function* (): Generator<UsageSample> {
-    for (const row of rows) {
-      // Any real token traffic makes the row a token sample — including a
-      // pure-cache call whose uncached input and output are both zero.
-      if (row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheWriteTokens > 0) {
-        yield {
-          day: row.day,
-          model: row.model,
-          inputTokens: row.inputTokens,
-          outputTokens: row.outputTokens,
-          cacheReadTokens: row.cacheReadTokens,
-          cacheWriteTokens: row.cacheWriteTokens,
+    if (hourRows.length > 0) {
+      for (const row of hourRows) {
+        // Any real token traffic makes the row a token sample — including a
+        // pure-cache call whose uncached input and output are both zero.
+        if (row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheWriteTokens > 0) {
+          yield {
+            day: dayOfHourKey(row.hour),
+            hour: row.hour,
+            model: row.model,
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            cacheReadTokens: row.cacheReadTokens,
+            cacheWriteTokens: row.cacheWriteTokens,
+          }
+        }
+        // Requests are stored as a count on the row (one per provider call,
+        // tokens or not); expand them into request markers for the shared
+        // aggregator. They are read from THIS table only — the day table
+        // carries the same calls, and counting both would double every request.
+        for (let i = 0; i < row.requests; i++) {
+          yield { day: dayOfHourKey(row.hour), hour: row.hour, model: row.model, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, request: true }
         }
       }
-      // Requests live on the row as a count (one per provider call, tokens or
-      // not); expand them into request markers for the shared aggregator.
-      for (let i = 0; i < row.requests; i++) {
-        yield { day: row.day, model: row.model, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, request: true }
+    } else {
+      for (const row of dayRows) {
+        if (row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheWriteTokens > 0) {
+          yield {
+            day: row.day,
+            model: row.model,
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            cacheReadTokens: row.cacheReadTokens,
+            cacheWriteTokens: row.cacheWriteTokens,
+          }
+        }
+        for (let i = 0; i < row.requests; i++) {
+          yield { day: row.day, model: row.model, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, request: true }
+        }
       }
+    }
+    // Turns always come from the day table: the collector records a turn
+    // marker without an hour, and the hour table deliberately omits them.
+    for (const row of dayRows) {
       for (let i = 0; i < row.turns; i++) {
         yield { day: row.day, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turn: true }
       }

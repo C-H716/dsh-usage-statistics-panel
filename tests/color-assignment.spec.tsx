@@ -1,7 +1,7 @@
 /**
  * Regression test for the chart colour assignment: a model's colour must be
  * its TOKEN rank (--dsw-chart-1..10 by token volume, gray --dsw-chart-other
- * for the collapsed tail), matching reasonix — never the first-seen order of
+ * for the collapsed tail), matching reasonix 閳?never the first-seen order of
  * the daily walk, which used to hand the blue to a tail model and gray out a
  * top-10 model.
  */
@@ -44,27 +44,36 @@ const range: UsageStatsRange = {
   activeDays: 2,
   topModel: 'm01',
   topProvider: 'p1',
+  cost: 0,
+  costInput: 0,
+  costCacheHit: 0,
+  costOutput: 0,
+  costPeak: 0,
+  costOffPeak: 0,
+  input: 0,
+  output: 0,
+  hourly: [],
   daily: [
-    { day: '2026-08-01', total: 770, byModel: { m11: 10, m02: 400, m07: 100, m05: 200, m09: 60 }, byProvider: { p1: 700, p2: 70 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100 },
-    { day: '2026-08-02', total: 1270, byModel: { m01: 450, m04: 250, m03: 300, m06: 150, m08: 80, m10: 40 }, byProvider: { p1: 1150, p3: 120 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100 },
+    { day: '2026-08-01', total: 770, byModel: { m11: 10, m02: 400, m07: 100, m05: 200, m09: 60 }, byProvider: { p1: 700, p2: 70 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100, output: 0, cost: 0 },
+    { day: '2026-08-02', total: 1270, byModel: { m01: 450, m04: 250, m03: 300, m06: 150, m08: 80, m10: 40 }, byProvider: { p1: 1150, p3: 120 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100, output: 0, cost: 0 },
   ],
   models: [
-    { model: 'm01', provider: 'p1', tokens: 450, percent: 22.06 },
-    { model: 'm02', provider: 'p1', tokens: 400, percent: 19.61 },
-    { model: 'm03', provider: 'p2', tokens: 300, percent: 14.71 },
-    { model: 'm04', provider: 'p2', tokens: 250, percent: 12.25 },
-    { model: 'm05', provider: 'p2', tokens: 200, percent: 9.8 },
-    { model: 'm06', provider: 'p3', tokens: 150, percent: 7.35 },
-    { model: 'm07', provider: 'p1', tokens: 100, percent: 4.9 },
-    { model: 'm08', provider: 'p3', tokens: 80, percent: 3.92 },
-    { model: 'm09', provider: 'p2', tokens: 60, percent: 2.94 },
-    { model: 'm10', provider: 'p3', tokens: 40, percent: 1.96 },
-    { model: 'm11', provider: 'p2', tokens: 10, percent: 0.49 },
+    { model: 'm01', provider: 'p1', tokens: 450, percent: 22.06, cost: 0, costPercent: 0 },
+    { model: 'm02', provider: 'p1', tokens: 400, percent: 19.61, cost: 0, costPercent: 0 },
+    { model: 'm03', provider: 'p2', tokens: 300, percent: 14.71, cost: 0, costPercent: 0 },
+    { model: 'm04', provider: 'p2', tokens: 250, percent: 12.25, cost: 0, costPercent: 0 },
+    { model: 'm05', provider: 'p2', tokens: 200, percent: 9.8, cost: 0, costPercent: 0 },
+    { model: 'm06', provider: 'p3', tokens: 150, percent: 7.35, cost: 0, costPercent: 0 },
+    { model: 'm07', provider: 'p1', tokens: 100, percent: 4.9, cost: 0, costPercent: 0 },
+    { model: 'm08', provider: 'p3', tokens: 80, percent: 3.92, cost: 0, costPercent: 0 },
+    { model: 'm09', provider: 'p2', tokens: 60, percent: 2.94, cost: 0, costPercent: 0 },
+    { model: 'm10', provider: 'p3', tokens: 40, percent: 1.96, cost: 0, costPercent: 0 },
+    { model: 'm11', provider: 'p2', tokens: 10, percent: 0.49, cost: 0, costPercent: 0 },
   ],
   providers: [
-    { provider: 'p1', tokens: 950, percent: 46.57 },
-    { provider: 'p2', tokens: 820, percent: 40.2 },
-    { provider: 'p3', tokens: 270, percent: 13.24 },
+    { provider: 'p1', tokens: 950, percent: 46.57, cost: 0, costPercent: 0 },
+    { provider: 'p2', tokens: 820, percent: 40.2, cost: 0, costPercent: 0 },
+    { provider: 'p3', tokens: 270, percent: 13.24, cost: 0, costPercent: 0 },
   ],
 }
 

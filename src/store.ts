@@ -1,11 +1,18 @@
 /**
  * The usage-history durable store. Records accumulate into one storage
- * domain (`usage_history`, single table `days`) keyed
- * `YYYY-MM-DD|provider|model` with the four token buckets plus per-day
- * counters (requests, turns) and the uncached-input cache-miss side. Writes
- * go through `KvTable.update()` (atomic read-modify-write queued per key), so
- * concurrent turns never interleave. The backend persists the domain to
- * `$DSH_HOME/storages/usage_history.json` (storage-json).
+ * domain (`usage_history`) with two tables over the same samples:
+ *
+ * - `days`, keyed `YYYY-MM-DD|provider|model`: the four token buckets plus
+ *   per-day counters (requests, turns) and the uncached-input cache-miss side;
+ * - `hours`, keyed `YYYY-MM-DDTHH|provider|model`: the same token buckets cut
+ *   by hour, which is what makes a correct cost figure possible — DeepSeek
+ *   bills input and output at double the rate inside its peak windows
+ *   (09:00-12:00 and 14:00-18:00 Beijing time on weekdays), and those windows
+ *   begin and end on whole hours.
+ *
+ * Writes go through `KvTable.update()` (atomic read-modify-write queued per
+ * key), so concurrent turns never interleave. The backend persists the domain
+ * to `$DSH_HOME/storages/usage_history.json` (storage-json).
  *
  * The layout mirrors the reasonix daily-JSONL design (one row per day ×
  * model) with the aggregation moved into the storage layer: a query reads
@@ -16,6 +23,7 @@ import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { UsageStorageDomain, UsageKvTable, UsageDomain } from './context-types.ts'
 import type { UsageSample } from './query.ts'
 import { providerOf } from './query.ts'
+import { hourKey } from './shared.ts'
 import { z } from 'zod'
 
 /** True when a KvTable.update() failure is the "no record to update" miss
@@ -52,6 +60,42 @@ export const usageDayRowSchema = z.object({
   lastSeen: z.number(),
 })
 
+/** One row: a model's usage in one local calendar hour.
+ *
+ *  The hour table exists because cost cannot be derived from a day total:
+ *  DeepSeek bills input and output at double the rate during its peak windows
+ *  (09:00-12:00 and 14:00-18:00 Beijing time on weekdays), and those windows
+ *  start and end on whole hours. One hour key therefore carries the complete
+ *  pricing tier of every sample inside it, and summing per-hour charges
+ *  reproduces the exact bill.
+ *
+ *  Turn markers carry no tokens and no cost, so they stay in the day table
+ *  only; requests are kept here because an hourly call count is part of the
+ *  consumption picture the panel draws. */
+export interface UsageHourRow {
+  hour: string // "YYYY-MM-DDTHH", local calendar
+  provider: string
+  model: string // canonical "provider/model"; "(unknown)" for unlabelled
+  inputTokens: number // uncached input (the cache-miss side)
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  requests: number
+  lastSeen: number // epoch ms of the newest sample
+}
+
+export const usageHourRowSchema = z.object({
+  hour: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheWriteTokens: z.number(),
+  requests: z.number(),
+  lastSeen: z.number(),
+})
+
 /** The domain's global singleton: the backfill cursor. Session ids already
  *  replayed into the store live here, so a reboot's backfill only folds
  *  sessions it has never seen (a full replay would double every counter —
@@ -77,12 +121,18 @@ export const usageHistoryDomain = defineDomain({
   },
   tables: {
     days: domainTable<string, UsageDayRow>(usageDayRowSchema),
+    hours: domainTable<string, UsageHourRow>(usageHourRowSchema),
   },
 })
 
 /** key: `day|provider|model`. */
 export function dayRowKey(day: string, provider: string, model: string): string {
   return `${day}|${provider}|${model}`
+}
+
+/** key: `hour|provider|model`. */
+export function hourRowKey(hour: string, provider: string, model: string): string {
+  return `${hour}|${provider}|${model}`
 }
 
 /** The domain global's value: the backfill cursor (see the
@@ -94,6 +144,8 @@ interface UsageCursor {
 
 export class UsageStore {
   private table: UsageKvTable<string, UsageDayRow> | null = null
+  /** The per-hour table backing every cost figure (see UsageHourRow). */
+  private hourTable: UsageKvTable<string, UsageHourRow> | null = null
   private domainHandle: UsageDomain | null = null
   private ready: Promise<void>
   /** Set when the domain could not be opened (already-open race, corrupted
@@ -123,6 +175,7 @@ export class UsageStore {
     const domain = await ctx.open(usageHistoryDomain)
     this.domainHandle = domain
     this.table = domain.table('days') as UsageKvTable<string, UsageDayRow>
+    this.hourTable = domain.table('hours') as UsageKvTable<string, UsageHourRow>
     // One-time rebuild of pre-cursor rows (≤0.1.1 wrote the old request
     // semantics and no turns at all): rows paired with a completely empty
     // cursor cannot be told apart from a half-written new-world store, and
@@ -134,9 +187,40 @@ export class UsageStore {
     // first writes — lands after the decision, so no ordering race exists.
     const value = domain.global?.get() as { backfilledSessions?: string[] } | undefined
     const cursorEmpty = (value?.backfilledSessions?.length ?? 0) === 0
-    if (cursorEmpty && this.table.keys().next().done === false) {
+    const hasDayRows = this.table.keys().next().done === false
+    if ((cursorEmpty && hasDayRows) || this.hourRebuildNeeded()) {
       for (const key of [...this.table.keys()]) await this.table.delete(key)
+      for (const key of [...(this.hourTable?.keys() ?? [])]) await this.hourTable?.delete(key)
+      // Drop the cursor in the same breath: the hour table is rebuilt from the
+      // session logs, and a surviving "already replayed" cursor would make the
+      // follow-up backfill skip every session whose usage the wipe just
+      // destroyed. An empty cursor makes the next boot replay all of them.
+      await this.domainHandle?.global?.set({ backfilledSessions: [], liveFirstSeq: {} })
     }
+  }
+
+  /** Whether the hour table must be rebuilt from the session logs.
+   *
+   *  The hour table was added after the day table shipped, so a store written
+   *  by an earlier build holds day rows with no per-hour counterpart — and a
+   *  day total cannot be split back into hours, because DeepSeek's peak and
+   *  off-peak windows (09:00-12:00 and 14:00-18:00 Beijing time on weekdays)
+   *  bill the same tokens at double the rate.
+   *
+   *  The condition is derived from the data rather than a stored revision: hour
+   *  rows exist exactly when some build populated them, so an empty hour table
+   *  beside token-bearing day rows means the rebuild never ran. Once the
+   *  backfill refills the hour table the condition turns false on its own, so
+   *  this cannot re-trigger on every boot, and a rebuild interrupted by a crash
+   *  simply runs again. Request-only or turn-only rows carry no tokens and no
+   *  cost, so a store holding nothing else needs no rebuild. */
+  private hourRebuildNeeded(): boolean {
+    if (this.hourTable === null) return false
+    if (this.hourTable.keys().next().done === false) return false
+    for (const [, row] of this.table?.entries() ?? []) {
+      if (row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheWriteTokens > 0) return true
+    }
+    return false
   }
 
   /** The open failure when running degraded, else undefined (diagnostics). */
@@ -299,6 +383,11 @@ export class UsageStore {
     const day = sample.day
     const provider = sample.turn ? 'default' : providerOf(sample.model && sample.model !== '' ? sample.model : '(unknown)')
     const model = sample.turn ? '(turns)' : sample.model && sample.model !== '' ? sample.model : '(unknown)'
+    // The hour row is a second, orthogonal cut of the same sample: the day
+    // table answers "how much on this date", the hour table answers "at what
+    // price", because the peak and off-peak windows are hour-aligned. Turn
+    // markers carry neither tokens nor cost and stay in the day table only.
+    if (!sample.turn) await this.recordHour(sample, provider, model)
     const key = dayRowKey(day, provider, model)
     const apply = (cur: UsageDayRow | undefined): UsageDayRow => {
       const base = cur ?? emptyRow(day, provider, model)
@@ -331,6 +420,53 @@ export class UsageStore {
       }
       throw err
     }
+  }
+
+  /** Fold one non-turn sample into its hour row.
+   *
+   *  Mirrors {@link record}'s day write, including the seed-then-update retry
+   *  for an absent key, so a first-writer race cannot drop an hour bucket. */
+  private async recordHour(sample: UsageSample, provider: string, model: string): Promise<void> {
+    const table = this.hourTable
+    if (table === null) return
+    const hour = hourKey(hourKeySource(sample))
+    const key = hourRowKey(hour, provider, model)
+    const apply = (cur: UsageHourRow | undefined): UsageHourRow => {
+      const base = cur ?? emptyHourRow(hour, provider, model)
+      if (sample.request) {
+        return { ...base, requests: base.requests + 1, lastSeen: Date.now() }
+      }
+      return {
+        ...base,
+        inputTokens: base.inputTokens + sample.inputTokens,
+        outputTokens: base.outputTokens + sample.outputTokens,
+        cacheReadTokens: base.cacheReadTokens + sample.cacheReadTokens,
+        cacheWriteTokens: base.cacheWriteTokens + sample.cacheWriteTokens,
+        lastSeen: Date.now(),
+      }
+    }
+    try {
+      await table.update(key, apply)
+    } catch (err) {
+      if (isMissingRecord(err)) {
+        await table.put(key, emptyHourRow(hour, provider, model))
+        await table.update(key, apply)
+        return
+      }
+      throw err
+    }
+  }
+
+  /** All hour rows whose hour intersects [from, to] (inclusive hour keys). */
+  async rangeHourRows(from: string, to: string): Promise<UsageHourRow[]> {
+    await this.ready
+    const table = this.hourTable
+    if (table === null) return []
+    const out: UsageHourRow[] = []
+    for (const [, row] of table.entries()) {
+      if (row.hour >= from && row.hour <= to) out.push(row)
+    }
+    return out
   }
 
   /** All rows whose day intersects [from, to] (inclusive). */
@@ -367,4 +503,36 @@ function emptyRow(day: string, provider: string, model: string): UsageDayRow {
     turns: 0,
     lastSeen: Date.now(),
   }
+}
+
+function emptyHourRow(hour: string, provider: string, model: string): UsageHourRow {
+  return {
+    hour,
+    provider,
+    model,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    requests: 0,
+    lastSeen: Date.now(),
+  }
+}
+
+/** The timestamp a sample's hour is derived from.
+ *
+ *  A sample carries its own `hour` when the collector stamped one (it has the
+ *  event time in hand); otherwise the day is widened to its first hour. The
+ *  fallback keeps older callers working, at the cost of attributing such a
+ *  sample to 00:00 — off-peak, so it can only understate a cost, never
+ *  overstate it. */
+function hourKeySource(sample: UsageSample): number {
+  const stamped = sample.hour
+  if (stamped !== undefined && stamped !== '') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(stamped)
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4])).getTime()
+  }
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sample.day)
+  if (d) return new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3]), 0).getTime()
+  return Date.now()
 }

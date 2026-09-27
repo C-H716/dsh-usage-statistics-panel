@@ -10,7 +10,8 @@
 
 // Shared with the host half (src/shared.ts has no Node/DOM types, so the
 // client bundle may import it at runtime).
-export { providerOf, modelNameOf, daysInRange as daysBetween } from '../shared.ts'
+export { providerOf, modelNameOf, daysInRange as daysBetween, dayOfHourKey } from '../shared.ts'
+export { formatCost, formatCostCompact, COST_SYMBOL, isPeakHourKey } from '../pricing.ts'
 
 /** Exact token counts with thousands separators — no 万/亿/k/M units, the
  *  user reads the precise number (long values shrink to fit via FitText).
@@ -66,6 +67,22 @@ export function shortDay(day: string): string {
   const m = parts[1]
   const d = parts[2]
   return `${Number(m)}/${Number(d)}`
+}
+
+/** Short label for an hour slot: "14:00" of "2026-08-02T14". */
+export function shortHour(hour: string): string {
+  const h = hour.slice(11, 13)
+  return `${Number(h)}:00`
+}
+
+/** Hour-of-day (0..23) of an hour slot key. */
+export function hourOfDay(hour: string): number {
+  return Number(hour.slice(11, 13))
+}
+
+/** Day-and-hour label for tooltips: "8/2 14:00". */
+export function shortDayHour(hour: string): string {
+  return `${shortDay(hour.slice(0, 10))} ${shortHour(hour)}`
 }
 
 /** model refs are "provider/model"; a bare model name has no slash.

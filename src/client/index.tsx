@@ -152,29 +152,20 @@ export function apply(ctx: Context): void {
   // Subscribing (rather than reading on demand) is what makes the target right
   // even when the reader takes the long way in: from the Plugins page's bundle
   // detail, or from another panel entirely.
-  let previousPanelId: string | null = null
-  let lastPanelId = ctx.layout.panelInfo.getSnapshot().activePanelId
-  ctx.effect(() => ctx.layout.panelInfo.subscribe(() => {
-    const next = ctx.layout.panelInfo.getSnapshot().activePanelId
-    if (next === PANEL_ID && lastPanelId !== PANEL_ID) previousPanelId = lastPanelId
-    lastPanelId = next
-  }), 'dsh-usage-statistics-panel: panel history')
-
-  // Go back to the remembered panel, or to the Conversation.
+  // Back control for the standalone panel: return to the Conversation.
   //
-  // A remembered key may have been unregistered since, and `selectPanel` throws
-  // on an unknown key — a throw here would strand the reader on this panel
-  // behind a control that does nothing. `null` is always a legal selection, so
-  // falling back to it keeps the control total.
+  // The shell keeps no navigation history: `layout.selectPanel` writes a
+  // selection and nothing else, and the active-panel observable is published on
+  // the root slot's `panelInfo` hook rather than on the layout service. Reading
+  // it here would require a render-time hook or the root hook bridge, neither of
+  // which the control needs to stay total, because `null` (the Conversation) is
+  // always a legal selection. `selectPanel` throws on an unregistered key, so
+  // the call is guarded.
   const goBack = (): void => {
-    if (previousPanelId === null || previousPanelId === PANEL_ID) {
-      ctx.layout.selectPanel(null)
-      return
-    }
     try {
-      ctx.layout.selectPanel(previousPanelId)
-    } catch {
       ctx.layout.selectPanel(null)
+    } catch {
+      /* selectPanel(null) cannot throw on an unknown key; nothing to recover. */
     }
   }
 

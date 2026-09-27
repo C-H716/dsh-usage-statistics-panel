@@ -20,6 +20,28 @@ export interface DailyTokenUsage {
   turns: number // completed turns
   cacheHit: number // cached input tokens that day
   cacheMiss: number // uncached input tokens that day
+  output: number // output tokens that day
+  /** Cost in CNY for this day, summed from its hour rows so peak and
+   *  off-peak rates are applied per hour rather than to a blended total. */
+  cost: number
+}
+
+/** One hour's usage in the hourly consumption series.
+ *
+ *  Hours are the cost model's native resolution: DeepSeek's peak windows
+ *  (09:00-12:00, 14:00-18:00 Beijing time on weekdays) both begin and end on a
+ *  whole hour, so one hour key carries a single price tier for every token in
+ *  it. */
+export interface HourlyTokenUsage {
+  hour: string // "YYYY-MM-DDTHH", local calendar
+  total: number // provider-inclusive tokens
+  input: number // cache-miss (uncached) input tokens
+  cacheHit: number // cache-read input tokens
+  cacheMiss: number // uncached input plus cache writes
+  output: number
+  requests: number
+  cost: number // CNY, computed at this hour's own tier
+  peak: boolean // whether this hour falls in a peak window
 }
 
 /** One model's aggregate within the range. */
@@ -28,6 +50,12 @@ export interface ModelTokenUsage {
   provider: string
   tokens: number
   percent: number // 0..100
+  /** Cost in CNY attributed to this model across the range. */
+  cost: number
+  /** Cost share of the range total, 0..100. Kept separate from `percent`
+   *  because cost and token share differ: a model billed mostly from cache
+   *  hits carries many tokens but little money. */
+  costPercent: number
 }
 
 /** One provider's aggregate within the range (each provider may serve several models). */
@@ -35,6 +63,10 @@ export interface ProviderTokenUsage {
   provider: string
   tokens: number
   percent: number
+  /** Cost in CNY attributed to this provider across the range. */
+  cost: number
+  /** Cost share of the range total, 0..100. */
+  costPercent: number
 }
 
 /** The full aggregate the panel renders for one time range. */
@@ -51,15 +83,31 @@ export interface UsageStatsRange {
   activeDays: number
   topModel: string
   topProvider: string
+  // Cost (CNY), all computed per hour so peak/off-peak rates stay exact
+  cost: number
+  /** Cost of the cache-miss input tokens across the range. */
+  costInput: number
+  /** Cost of the cache-hit input tokens across the range. */
+  costCacheHit: number
+  /** Cost of the output tokens across the range. */
+  costOutput: number
+  /** Cost incurred inside peak windows, for the peak/off-peak split. */
+  costPeak: number
+  /** Cost incurred outside peak windows. */
+  costOffPeak: number
+  // Totals split for the input/output/cache breakdown
+  input: number // cache-miss (uncached) input tokens
+  output: number // output tokens
   // Series
   daily: DailyTokenUsage[]
+  hourly: HourlyTokenUsage[]
   models: ModelTokenUsage[]
   providers: ProviderTokenUsage[]
 }
 
 /** The usage statistics panel aggregate request. */
 export interface UsageStatsRequest {
-  range: string // "7" | "14" | "30" | "90" | "custom"
+  range: string // "today" | "yesterday" | "7" | "14" | "30" | "90" | "custom"
   from?: string // "YYYY-MM-DD", custom only
   to?: string // "YYYY-MM-DD", custom only
 }

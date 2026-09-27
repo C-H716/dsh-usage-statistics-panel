@@ -256,6 +256,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* A secondary count riding a section title (the heatmap's active-day tally).
+   Muted and lighter than the title so it annotates rather than competes. */
+.sectionNote {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .chartWrap {
   position: relative;
   min-width: 0;
@@ -360,6 +369,43 @@
 
 .axisRate {
   fill: var(--dsw-alias-label-tertiary);
+}
+
+/* Hourly spend bars: peak hours take the saturated brand tone, off-peak the
+   same hue at half strength, so the two-rate day reads without a legend. */
+.hourBarPeak {
+  fill: var(--dsw-trend-line);
+  background: var(--dsw-trend-line);
+}
+
+.hourBarOff {
+  fill: color-mix(in srgb, var(--dsw-trend-line) 45%, transparent);
+  background: color-mix(in srgb, var(--dsw-trend-line) 45%, transparent);
+}
+
+/* Token curves over the hourly bars: the cost axis and the token axis differ
+   in magnitude, so each curve carries its own colour and a right-hand axis
+   instead of sharing the bar scale. */
+.hourCurve {
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.hourCurveDot {
+  stroke: var(--dsw-alias-bg-layer-1);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.axisTokens {
+  text-anchor: start;
+}
+
+.legendCurve {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
 }
 
 .bar {
@@ -604,6 +650,15 @@
 }
 
 .modelPct {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cost sits under the token count as the row's second value line: the two
+   measure different things (volume vs money) and tabular figures keep the
+   column aligned down the list. */
+.modelCost {
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;

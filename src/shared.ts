@@ -46,3 +46,45 @@ export function modelNameOf(modelRef: string): string {
   if (i > 0) return modelRef.slice(i + 1)
   return modelRef
 }
+
+/** Local calendar hour key, e.g. "2026-08-02T14" (no UTC shift).
+ *
+ *  The hour is the cost model's resolution: DeepSeek's peak and off-peak
+ *  windows both begin and end on a whole hour, so one hour key carries the
+ *  entire pricing tier of every sample inside it. */
+export function hourKey(ts: number): string {
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  return `${y}-${m}-${day}T${h}`
+}
+
+/** The local calendar day a hour key belongs to ("YYYY-MM-DD"). */
+export function dayOfHourKey(hourKeyValue: string): string {
+  return hourKeyValue.slice(0, 10)
+}
+
+/** All local-calendar hour keys in [from, to], inclusive, both bounds being
+ *  "YYYY-MM-DDTHH" keys. Invalid or reversed bounds yield an empty list. */
+export function hoursInRange(from: string, to: string): string[] {
+  const out: string[] = []
+  const start = parseHourKeyLocal(from)
+  const end = parseHourKeyLocal(to)
+  if (start === null || end === null || end < start) return out
+  // Step by epoch hours, then re-key: adding 3600e3 to a local timestamp lands
+  // on the next local hour across DST transitions as well, while re-keying
+  // keeps the emitted labels in local calendar terms.
+  for (let ts = start; ts <= end; ts += 3_600_000) out.push(hourKey(ts))
+  return out
+}
+
+/** Parse a local hour key to epoch ms; null when malformed. Local-time
+ *  counterpart of pricing.ts's parseHourKey, kept dependency-free here. */
+function parseHourKeyLocal(hourKeyValue: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(hourKeyValue)
+  if (!m) return null
+  const ts = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4])).getTime()
+  return Number.isNaN(ts) ? null : ts
+}

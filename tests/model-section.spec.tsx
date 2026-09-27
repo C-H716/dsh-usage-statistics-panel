@@ -2,7 +2,7 @@
  * The per-model section's row anatomy and its own expansion. The colour
  * assignment has its own suite; this one pins structure the provider section
  * mirrors one dimension up: ranked rows carry a rank number and Other does
- * not, Other opens the models it folded (ONE level — the provider section is
+ * not, Other opens the models it folded (ONE level 閳?the provider section is
  * the one with two), and its detail wrapper is a SIBLING of the row it
  * belongs to, so opening it leaves the ring beside it untouched.
  */
@@ -36,14 +36,25 @@ const range: UsageStatsRange = {
   activeDays: 2,
   topModel: 'm01',
   topProvider: 'p1',
+  cost: 0,
+  costInput: 0,
+  costCacheHit: 0,
+  costOutput: 0,
+  costPeak: 0,
+  costOffPeak: 0,
+  input: 0,
+  output: 0,
+  hourly: [],
   daily: [],
   models: Array.from({ length: 11 }, (_, i) => ({
     model: `m${String(i + 1).padStart(2, '0')}`,
     provider: 'p1',
     tokens: (11 - i) * 100,
     percent: 0,
+    cost: 0,
+    costPercent: 0,
   })),
-  providers: [{ provider: 'p1', tokens: 6600, percent: 100 }],
+  providers: [{ provider: 'p1', tokens: 6600, percent: 100, cost: 0, costPercent: 0 }],
 }
 
 function stubFetch() {

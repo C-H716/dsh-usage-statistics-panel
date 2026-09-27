@@ -4,42 +4,52 @@
  * on their own row, and rangeRows filters by day.
  */
 import { describe, expect, it } from 'vitest'
-import { UsageStore, dayRowKey, type UsageDayRow } from '../src/store.ts'
+import { UsageStore, dayRowKey, type UsageDayRow, type UsageHourRow } from '../src/store.ts'
 import type { UsageDomain, UsageKvTable, UsageStorageDomain } from '../src/context-types.ts'
 
 function memoryDomain(): UsageStorageDomain {
   return memoryDomainWith(new Map())
 }
 
-/** A storage-domain stand-in whose table starts with `records` and whose
- *  global starts at `globalValue` (mirroring an absent cursor). */
-function memoryDomainWith(
-  records: Map<string, UsageDayRow>,
-  globalValue?: { backfilledSessions: string[]; liveFirstSeq?: Record<string, number> },
-): UsageStorageDomain {
-  const table: UsageKvTable<string, UsageDayRow> = {
+/** One in-memory KvTable over `records`, mirroring the storage-domain
+ *  update() contract: it requires an existing record and throws otherwise
+ *  (the store retries by seeding the row with put()). */
+function memoryTable<T extends { lastSeen: number }>(records: Map<string, T>): UsageKvTable<string, T> {
+  return {
     get: (k) => records.get(k),
-    entries: () => records.entries() as IterableIterator<[string, UsageDayRow]>,
+    entries: () => records.entries() as IterableIterator<[string, T]>,
     keys: () => records.keys() as IterableIterator<string>,
     get size() { return records.size },
     delete: async (k) => records.delete(k),
     put: async (k, v) => { records.set(k, v) },
     update: async (k, fn) => {
-      // Mirror the real storage-domain KvTable.update contract: it requires
-      // an existing record and throws otherwise (the store retries by
-      // seeding the row with put()).
       const cur = records.get(k)
       if (cur === undefined) {
-        throw new Error(`domain 'usage_history' table 'days' has no record '${k}' to update`)
+        throw new Error(`domain 'usage_history' has no record '${k}' to update`)
       }
       const next = fn(cur)
       records.set(k, next)
       return next
     },
   }
+}
+
+/** A storage-domain stand-in over `records` (day rows) and `hourRecords`
+ *  (hour rows), whose global starts at `globalValue` (mirroring an absent
+ *  cursor). The two tables must stay SEPARATE: the store writes the same
+ *  sample to both, so a single shared map would double every count(). */
+function memoryDomainWith(
+  records: Map<string, UsageDayRow>,
+  globalValue?: { backfilledSessions: string[]; liveFirstSeq?: Record<string, number> },
+  hourRecords: Map<string, UsageHourRow> = new Map(),
+): UsageStorageDomain {
+  const tables: Record<string, UsageKvTable<string, unknown>> = {
+    days: memoryTable(records) as unknown as UsageKvTable<string, unknown>,
+    hours: memoryTable(hourRecords) as unknown as UsageKvTable<string, unknown>,
+  }
   const state = { global: globalValue }
   const domain: UsageDomain = {
-    table: () => table as UsageKvTable<string, unknown>,
+    table: (name: string) => tables[name]!,
     global: {
       get: () => state.global,
       set: async (value) => { state.global = value as typeof globalValue },
@@ -125,7 +135,13 @@ describe('UsageStore', () => {
     const records = new Map<string, UsageDayRow>([
       ['2026-08-01|deepseek|m', { day: '2026-08-01', provider: 'deepseek', model: 'm', inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0, turns: 0, lastSeen: 0 }],
     ])
-    const domain = memoryDomainWith(records, { backfilledSessions: ['s1'] })
+    // A cursor-bearing store is a NEW-world store, so it carries hour rows
+    // beside the day rows; without them the hour-table heal would fire and
+    // wipe exactly the rows this test pins.
+    const hours = new Map<string, UsageHourRow>([
+      ['2026-08-01T10|deepseek|m', { hour: '2026-08-01T10', provider: 'deepseek', model: 'm', inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0, lastSeen: 0 }],
+    ])
+    const domain = memoryDomainWith(records, { backfilledSessions: ['s1'] }, hours)
     const store = new UsageStore(domain)
     await store.readyPromise()
     expect(await store.count()).toBe(1)

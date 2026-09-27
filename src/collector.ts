@@ -44,7 +44,7 @@ import type { Context } from './context-types.ts'
 import type { UsageSessionEvent, UsageSessionHeader, UsageSessionPersistence, UsageSessionSnapshot, UsageSessionStore } from './context-types.ts'
 import type { UsageStore } from './store.ts'
 import type { UsageSample } from './query.ts'
-import { dayKey } from './query.ts'
+import { dayKey, hourKey } from './query.ts'
 
 /** A usage-bearing event shape we extract from the session log. */
 interface UsageEventData {
@@ -125,7 +125,7 @@ export class UsageFold {
       // Every ended turn counts once (reasonix TurnDone parity): a turn ends
       // exactly once, so no dedupe key is needed. Failed turns end too, and
       // reasonix emits TurnDone regardless of the run's error.
-      return { day: dayKey(ev.time), inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turn: true }
+      return { day: dayKey(ev.time), hour: hourKey(ev.time), inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turn: true }
     }
     if (ev.type === 'step/start' || ev.type === 'llm/retry-started') {
       // Attribution note: agent-loop appends step/start BEFORE request/context
@@ -143,6 +143,7 @@ export class UsageFold {
       // The marker carries no tokens; the store counts it as one request.
       return {
         day: dayKey(ev.time),
+        hour: hourKey(ev.time),
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
@@ -183,6 +184,7 @@ export class UsageFold {
     const key = this.keyOf(ev)
     const sample: UsageSample = {
       day: dayKey(ev.time),
+      hour: hourKey(ev.time),
       inputTokens: usage2.inputTokens,
       outputTokens: usage2.outputTokens,
       cacheReadTokens: usage2.cacheReadTokens ?? 0,

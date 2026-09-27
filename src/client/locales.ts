@@ -13,6 +13,8 @@ export type UsageStatsKey =
   | 'nav'
   | 'back'
   | 'range'
+  | 'rangePreset.today'
+  | 'rangePreset.yesterday'
   | 'rangePreset.7'
   | 'rangePreset.14'
   | 'rangePreset.30'
@@ -25,6 +27,23 @@ export type UsageStatsKey =
   | 'tokens'
   | 'tokensHint'
   | 'cachedTokens'
+  | 'cost'
+  | 'costHint'
+  | 'costInput'
+  | 'costCacheHit'
+  | 'costOutput'
+  | 'costPeak'
+  | 'costOffPeak'
+  | 'hourlyUsage'
+  | 'hourlyNote'
+  | 'inputTokens'
+  | 'outputTokens'
+  | 'cacheReadTokens'
+  | 'peakHour'
+  | 'offPeakHour'
+  | 'costBreakdown'
+  | 'tokenBreakdown'
+  | 'tokensByHour'
   | 'sessions'
   | 'requests'
   | 'activeDays'
@@ -74,6 +93,8 @@ export const en: Record<UsageStatsKey, string> = {
   nav: 'Usage statistics',
   back: 'Back',
   range: 'Time range',
+  'rangePreset.today': 'Today',
+  'rangePreset.yesterday': 'Yesterday',
   'rangePreset.7': 'Last 7 days',
   'rangePreset.14': 'Last 14 days',
   'rangePreset.30': 'Last 30 days',
@@ -86,6 +107,23 @@ export const en: Record<UsageStatsKey, string> = {
   tokens: 'Token usage',
   tokensHint: 'Provider-visible total: uncached input + output + cached tokens',
   cachedTokens: 'cached',
+  cost: 'Estimated cost',
+  costHint: 'Computed per hour from DeepSeek official pricing. Peak hours (weekdays 09:00-12:00 and 14:00-18:00 Beijing time) bill at twice the off-peak rate.',
+  costInput: 'Input cost',
+  costCacheHit: 'Cache hit cost',
+  costOutput: 'Output cost',
+  costPeak: 'Peak',
+  costOffPeak: 'Off-peak',
+  hourlyUsage: 'Hourly spend',
+  hourlyNote: 'Bar height is cost; the darker bar marks a peak hour',
+  inputTokens: 'Input',
+  outputTokens: 'Output',
+  cacheReadTokens: 'Cache read',
+  peakHour: 'Peak',
+  offPeakHour: 'Off-peak',
+  costBreakdown: 'Cost breakdown',
+  tokenBreakdown: 'Token breakdown',
+  tokensByHour: 'Tokens by hour',
   sessions: 'Sessions',
   requests: 'Requests',
   activeDays: 'Active days',
@@ -136,6 +174,8 @@ export const zh: Record<UsageStatsKey, string> = {
   nav: '使用统计',
   back: '返回',
   range: '时间范围',
+  'rangePreset.today': '当天',
+  'rangePreset.yesterday': '昨天',
   'rangePreset.7': '最近 7 天',
   'rangePreset.14': '最近 14 天',
   'rangePreset.30': '最近 30 天',
@@ -148,6 +188,23 @@ export const zh: Record<UsageStatsKey, string> = {
   tokens: 'Tokens 用量',
   tokensHint: '服务商总口径：未缓存输入 + 输出 + 缓存命中 token',
   cachedTokens: '缓存命中',
+  cost: '预估费用',
+  costHint: '按 DeepSeek 官方定价逐小时计算，高峰时段（工作日 9:00-12:00、14:00-18:00）单价为其余时段的两倍',
+  costInput: '输入费用',
+  costCacheHit: '缓存命中费用',
+  costOutput: '输出费用',
+  costPeak: '高峰时段',
+  costOffPeak: '空闲时段',
+  hourlyUsage: '每小时消费',
+  hourlyNote: '柱高为费用，深色柱表示高峰时段',
+  inputTokens: '输入',
+  outputTokens: '输出',
+  cacheReadTokens: '缓存读取',
+  peakHour: '高峰',
+  offPeakHour: '空闲',
+  costBreakdown: '费用构成',
+  tokenBreakdown: 'Token 构成',
+  tokensByHour: '按小时 Token',
   sessions: '会话数量',
   requests: '请求数量',
   activeDays: '活跃天数',
@@ -198,6 +255,8 @@ export const zhTW: Record<UsageStatsKey, string> = {
   nav: '使用統計',
   back: '返回',
   range: '時間範圍',
+  'rangePreset.today': '當天',
+  'rangePreset.yesterday': '昨天',
   'rangePreset.7': '最近 7 天',
   'rangePreset.14': '最近 14 天',
   'rangePreset.30': '最近 30 天',
@@ -210,6 +269,23 @@ export const zhTW: Record<UsageStatsKey, string> = {
   tokens: 'Tokens 用量',
   tokensHint: '服務商總口徑：未快取輸入 + 輸出 + 快取命中 token',
   cachedTokens: '快取命中',
+  cost: '預估費用',
+  costHint: '依 DeepSeek 官方定價逐小時計算，尖峰時段（工作日 9:00-12:00、14:00-18:00）單價為其餘時段的兩倍',
+  costInput: '輸入費用',
+  costCacheHit: '快取命中費用',
+  costOutput: '輸出費用',
+  costPeak: '尖峰時段',
+  costOffPeak: '離峰時段',
+  hourlyUsage: '每小時消費',
+  hourlyNote: '柱高為費用，深色柱表示尖峰時段',
+  inputTokens: '輸入',
+  outputTokens: '輸出',
+  cacheReadTokens: '快取讀取',
+  peakHour: '尖峰',
+  offPeakHour: '離峰',
+  costBreakdown: '費用構成',
+  tokenBreakdown: 'Token 構成',
+  tokensByHour: '按小時 Token',
   sessions: '會話數量',
   requests: '請求數量',
   activeDays: '活躍天數',

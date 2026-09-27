@@ -3,7 +3,7 @@
  * from the PROVIDER series (never a model hue), everything beyond in the gray
  * Other bucket, and one shared highlight between the ring and the list.
  * Providers that produced no tokens in the range must not enter the ranking at
- * all — a request-only provider has no usage to rank.
+ * all 閳?a request-only provider has no usage to rank.
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,29 +38,38 @@ const range: UsageStatsRange = {
   activeDays: 2,
   topModel: 'pb/m3',
   topProvider: 'pa',
+  cost: 0,
+  costInput: 0,
+  costCacheHit: 0,
+  costOutput: 0,
+  costPeak: 0,
+  costOffPeak: 0,
+  input: 0,
+  output: 0,
+  hourly: [],
   daily: [
-    { day: '2026-08-01', total: 580, byModel: { 'pa/m1': 300, 'pb/m3': 280 }, byProvider: { pa: 300, pb: 280 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100 },
-    { day: '2026-08-02', total: 1000, byModel: { 'pb/m3': 120, 'pc/m4': 300, 'pa/m2': 200, 'pd/m5': 200, 'pe/m6': 100, 'pf/m7': 50, 'pg/m8': 30 }, byProvider: { pa: 200, pb: 120, pc: 300, pd: 200, pe: 100, pf: 50, pg: 30 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100 },
+    { day: '2026-08-01', total: 580, byModel: { 'pa/m1': 300, 'pb/m3': 280 }, byProvider: { pa: 300, pb: 280 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100, output: 0, cost: 0 },
+    { day: '2026-08-02', total: 1000, byModel: { 'pb/m3': 120, 'pc/m4': 300, 'pa/m2': 200, 'pd/m5': 200, 'pe/m6': 100, 'pf/m7': 50, 'pg/m8': 30 }, byProvider: { pa: 200, pb: 120, pc: 300, pd: 200, pe: 100, pf: 50, pg: 30 }, requests: 1, turns: 1, cacheHit: 400, cacheMiss: 100, output: 0, cost: 0 },
   ],
   models: [
-    { model: 'pb/m3', provider: 'pb', tokens: 400, percent: 25.32 },
-    { model: 'pa/m1', provider: 'pa', tokens: 300, percent: 18.99 },
-    { model: 'pc/m4', provider: 'pc', tokens: 300, percent: 18.99 },
-    { model: 'pa/m2', provider: 'pa', tokens: 200, percent: 12.66 },
-    { model: 'pd/m5', provider: 'pd', tokens: 200, percent: 12.66 },
-    { model: 'pe/m6', provider: 'pe', tokens: 100, percent: 6.33 },
-    { model: 'pf/m7', provider: 'pf', tokens: 50, percent: 3.16 },
-    { model: 'pg/m8', provider: 'pg', tokens: 30, percent: 1.9 },
+    { model: 'pb/m3', provider: 'pb', tokens: 400, percent: 25.32, cost: 0, costPercent: 0 },
+    { model: 'pa/m1', provider: 'pa', tokens: 300, percent: 18.99, cost: 0, costPercent: 0 },
+    { model: 'pc/m4', provider: 'pc', tokens: 300, percent: 18.99, cost: 0, costPercent: 0 },
+    { model: 'pa/m2', provider: 'pa', tokens: 200, percent: 12.66, cost: 0, costPercent: 0 },
+    { model: 'pd/m5', provider: 'pd', tokens: 200, percent: 12.66, cost: 0, costPercent: 0 },
+    { model: 'pe/m6', provider: 'pe', tokens: 100, percent: 6.33, cost: 0, costPercent: 0 },
+    { model: 'pf/m7', provider: 'pf', tokens: 50, percent: 3.16, cost: 0, costPercent: 0 },
+    { model: 'pg/m8', provider: 'pg', tokens: 30, percent: 1.9, cost: 0, costPercent: 0 },
   ],
   providers: [
-    { provider: 'pa', tokens: 500, percent: 31.65 },
-    { provider: 'pb', tokens: 400, percent: 25.32 },
-    { provider: 'pc', tokens: 300, percent: 18.99 },
-    { provider: 'pd', tokens: 200, percent: 12.66 },
-    { provider: 'pe', tokens: 100, percent: 6.33 },
-    { provider: 'pf', tokens: 50, percent: 3.16 },
-    { provider: 'pg', tokens: 30, percent: 1.9 },
-    { provider: 'pz', tokens: 0, percent: 0 },
+    { provider: 'pa', tokens: 500, percent: 31.65, cost: 0, costPercent: 0 },
+    { provider: 'pb', tokens: 400, percent: 25.32, cost: 0, costPercent: 0 },
+    { provider: 'pc', tokens: 300, percent: 18.99, cost: 0, costPercent: 0 },
+    { provider: 'pd', tokens: 200, percent: 12.66, cost: 0, costPercent: 0 },
+    { provider: 'pe', tokens: 100, percent: 6.33, cost: 0, costPercent: 0 },
+    { provider: 'pf', tokens: 50, percent: 3.16, cost: 0, costPercent: 0 },
+    { provider: 'pg', tokens: 30, percent: 1.9, cost: 0, costPercent: 0 },
+    { provider: 'pz', tokens: 0, percent: 0, cost: 0, costPercent: 0 },
   ],
 }
 
@@ -89,7 +98,7 @@ function segmentColors(section: HTMLElement): Map<string, string> {
   return out
 }
 
-/** The section's top-level rows only — a detail row is nested one list deeper. */
+/** The section's top-level rows only 閳?a detail row is nested one list deeper. */
 function topRows(section: HTMLElement): HTMLElement[] {
   return Array.from(section.querySelectorAll('ul[class*="modelList"] > li[class*="modelRow"]'))
 }

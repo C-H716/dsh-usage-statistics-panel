@@ -20,13 +20,13 @@
  */
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import clsx from 'clsx'
-import { Activity, CalendarDays, ChevronDown, ChevronRight, Coins, Cpu, MessageSquare, MessagesSquare } from 'lucide-react'
+import { Activity, ChevronDown, ChevronRight, Coins, Cpu, MessageSquare, MessagesSquare, Wallet } from 'lucide-react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { DailyTokenUsage, ModelTokenUsage, ProviderTokenUsage, UsageStatsRange, UsageStatsRequest } from '../wire.ts'
+import type { DailyTokenUsage, HourlyTokenUsage, ModelTokenUsage, ProviderTokenUsage, UsageStatsRange, UsageStatsRequest } from '../wire.ts'
 import { fetchRange, UsageApiError } from './api.ts'
 import { ChartTip } from './ChartTip.tsx'
 import { Donut, useDonutSize, type DonutSegment } from './Donut.tsx'
-import { formatTokens, formatCompact, formatPercent, cacheRate, cacheRateText, daysBetween, localDay, indexOfDay, shortDay, providerOf, modelNameOf, smoothPath, niceTicks } from './format.ts'
+import { formatTokens, formatCompact, formatPercent, formatCost, formatCostCompact, COST_SYMBOL, cacheRate, cacheRateText, daysBetween, localDay, indexOfDay, shortDay, shortDayHour, providerOf, modelNameOf, smoothPath, niceTicks } from './format.ts'
 import type { UsageStatsKey } from './locales.ts'
 import type { UsageStatsTranslator } from './index.tsx'
 import { statsLineState } from './stats-line-state.ts'
@@ -34,7 +34,7 @@ import css from './UsageStatsPanel.module.css'
 
 type Translator = UsageStatsTranslator
 
-const RANGE_PRESETS = ['7', '14', '30', '90'] as const
+const RANGE_PRESETS = ['today', 'yesterday', '7', '14', '30', '90'] as const
 
 // The heatmap's DATA WINDOW: one year, fixed regardless of the range preset.
 // It is the window, not the number of weeks drawn — the render trims columns
@@ -171,6 +171,11 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
             provider: '',
             tokens: rest.reduce((sum, m) => sum + m.tokens, 0),
             percent: rest.reduce((sum, m) => sum + m.percent, 0),
+            // Cost aggregates alongside tokens so the Other row and its tooltip
+            // can report spend too; the split keeps ranking and money on the
+            // same bucket boundary.
+            cost: rest.reduce((sum, m) => sum + m.cost, 0),
+            costPercent: rest.reduce((sum, m) => sum + m.costPercent, 0),
             items: rest,
           },
         ]
@@ -227,6 +232,8 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
         provider: OTHER_PROVIDER,
         tokens: folded.reduce((sum, p) => sum + p.tokens, 0),
         percent: folded.reduce((sum, p) => sum + p.percent, 0),
+        cost: folded.reduce((sum, p) => sum + p.cost, 0),
+        costPercent: folded.reduce((sum, p) => sum + p.costPercent, 0),
         models: folded.flatMap((p) => p.models),
         folded,
       })
@@ -304,7 +311,8 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
       {stats && (
         <>
           <StatCards stats={stats} t={t} />
-          <Heatmap daily={heatDaily} from={heatWindow.from} to={heatWindow.to} t={t} panelRef={panelRef} />
+          <Heatmap daily={heatDaily} from={heatWindow.from} to={heatWindow.to} t={t} panelRef={panelRef} activeDays={stats.activeDays} />
+          <HourlySpend hourly={stats.hourly} t={t} panelRef={panelRef} />
           <DailyTrend models={trendModels} daily={trendDaily} t={t} colorForModel={colorForModel} panelRef={panelRef} />
           <ModelUsage models={trendModels} t={t} colorForModel={colorForModel} panelRef={panelRef} />
           <ProviderUsage providers={groupedProviders ?? []} t={t} colorForProvider={colorForProvider} panelRef={panelRef} />
@@ -422,7 +430,26 @@ function StatCards({ stats, t }: { stats: UsageStatsRange; t: Translator }) {
   const cards: Array<{ icon: typeof Coins; label: string; value: string; sm?: boolean; wrap?: boolean; hint?: string; modelRef?: boolean; sub?: string }> = [
     // The headline is provider-inclusive (uncached input + output + cached
     // tokens) — the number a provider dashboard reports for the same calls.
-    { icon: Coins, label: t('tokens'), value: formatTokens(stats.tokens), hint: t('tokensHint') },
+    // The input/output split sits underneath because the two buckets differ by
+    // an order of magnitude in price, so the total alone hides what drove it.
+    {
+      icon: Coins,
+      label: t('tokens'),
+      value: formatTokens(stats.tokens),
+      hint: t('tokensHint'),
+      sub: `${t('inputTokens')} ${formatCompact(stats.input)} · ${t('outputTokens')} ${formatCompact(stats.output)}`,
+    },
+    // Cost is the second headline: token totals alone cannot say what a range
+    // cost, because the same tokens bill at two rates depending on the hour.
+    // The peak/off-peak split underneath shows how much spend landed in the
+    // expensive window.
+    {
+      icon: Wallet,
+      label: t('cost'),
+      value: `${COST_SYMBOL}${formatCost(stats.cost)}`,
+      hint: t('costHint'),
+      sub: `${t('costPeak')} ${COST_SYMBOL}${formatCost(stats.costPeak)} · ${t('costOffPeak')} ${COST_SYMBOL}${formatCost(stats.costOffPeak)}`,
+    },
     { icon: MessageSquare, label: t('sessions'), value: String(stats.turns) },
     { icon: MessagesSquare, label: t('requests'), value: String(stats.requests) },
     {
@@ -434,12 +461,12 @@ function StatCards({ stats, t }: { stats: UsageStatsRange; t: Translator }) {
       // alone hides how many tokens the cache actually served.
       sub: `${formatCompact(stats.cacheHit)} ${t('cachedTokens')}`,
     },
-    { icon: CalendarDays, label: t('activeDays'), value: String(stats.activeDays) },
     // The two long-valued cards bookend the row: total tokens leads it and the
-    // top model closes it, each on a wider track than the four short numerics
+    // top model closes it, each on a wider track than the three short numerics
     // between them. The model sits last because it carries the longest text —
     // the model name over its provider — and the row's end is where that has
-    // the most room before FitText would have to shrink it.
+    // the most room before FitText would have to shrink it. The active-day
+    // count moved to the heatmap's own heading, which measures the same thing.
     { icon: Cpu, label: t('topModel'), value: stats.topModel || '—', hint: t('topModelHint'), modelRef: true },
   ]
   return (
@@ -570,7 +597,7 @@ export function heatGeometry(avail: number, startOffset: number): HeatGeometry {
   return { size: Math.max(HEAT_BASE, size), cols, totalWeeks: cols }
 }
 
-function Heatmap({ daily, from, to, t, panelRef }: { daily: DailyTokenUsage[]; from: string; to: string; t: Translator; panelRef: RefObject<HTMLDivElement | null> }) {
+function Heatmap({ daily, from, to, t, panelRef, activeDays }: { daily: DailyTokenUsage[]; from: string; to: string; t: Translator; panelRef: RefObject<HTMLDivElement | null>; activeDays: number }) {
   // Memoized so a hover/tip state change re-renders without rebuilding the
   // per-day lookup (the daily array is stable between fetches).
   const byDay = useMemo(() => {
@@ -613,7 +640,12 @@ function Heatmap({ daily, from, to, t, panelRef }: { daily: DailyTokenUsage[]; f
   return (
     <section className={css.section}>
       <div className={css.sectionHead}>
-        <h3 className={css.sectionTitle}>{t('heatmap')}</h3>
+        <h3 className={css.sectionTitle}>
+          {t('heatmap')}
+          {/* The active-day count belongs beside the calendar it is counted
+              from, rather than taking a card from the cost/token row. */}
+          <span className={css.sectionNote}>{t('activeDays')} {activeDays}</span>
+        </h3>
         <div className={css.heatLegend}>
           <span>{t('heatLess')}</span>
           <i className={clsx(css.heatCell, css.heatLevel1)} style={{ width: geom.size, height: geom.size }} />
@@ -666,7 +698,199 @@ function Heatmap({ daily, from, to, t, panelRef }: { daily: DailyTokenUsage[]; f
   )
 }
 
-// ── Section 5: stacked daily token trend ──────────────────────────────────
+// ── Section 5: hourly spend ───────────────────────────────────────────────
+
+/** The hourly chart's own display cap; a 90-day range holds over 2000 hours,
+ *  far more than one bar chart can resolve. */
+const HOUR_MAX_BARS = 240
+
+/** Token curves overlaid on the hourly cost bars. They answer what a
+ *  cost-only bar cannot: whether a tall bar was volume or the peak rate.
+ *  Colours are fixed chart-ramp slots, independent of the model ranking. */
+const HOUR_CURVES = [
+  { key: 'input', color: 'var(--dsw-chart-1)', label: 'inputTokens' },
+  { key: 'output', color: 'var(--dsw-chart-4)', label: 'outputTokens' },
+  { key: 'cacheHit', color: 'var(--dsw-chart-7)', label: 'cacheReadTokens' },
+] as const
+
+/**
+ * Hourly spend bars.
+ *
+ * One bar per hour that carried usage, sized by cost rather than tokens: the
+ * two DeepSeek tiers bill at a 2:1 ratio inside the same range, so a token
+ * chart would understate the expensive window. Peak hours are drawn in the
+ * darker tone, which makes the daily price rhythm legible without a legend.
+ * The tooltip carries the token split, since that is what explains a bar's
+ * height when two hours of similar volume differ in cost.
+ */
+function HourlySpend({ hourly, t, panelRef }: { hourly: HourlyTokenUsage[]; t: Translator; panelRef: RefObject<HTMLDivElement | null> }) {
+  const [tip, setTip] = useState<{ h: HourlyTokenUsage; anchor: Element } | null>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const W = 720
+  const H = 200
+  const padL = 46
+  // The right gutter carries the token curves' own axis, so it is far wider
+  // than a cost-only chart would need.
+  const padR = 52
+  const padB = 26
+  const padT = 10
+  const plotH = H - padT - padB
+  // The narrowest column pitch that still separates two adjacent hours.
+  const MIN_PITCH = 4
+
+  const [view, setView] = useState<{ avail: number; trimN: number }>({ avail: W, trimN: HOUR_MAX_BARS })
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el || hourly.length === 0) return
+    const update = () => {
+      const avail = Math.max(1, el.clientWidth)
+      const maxN = Math.floor((avail - padL - padR) / MIN_PITCH) + 1
+      const trimN = Math.max(1, Math.min(hourly.length, HOUR_MAX_BARS, maxN))
+      setView((prev) => (prev.avail === avail && prev.trimN === trimN ? prev : { avail, trimN }))
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hourly.length])
+
+  if (hourly.length === 0) return null
+
+  const visible = hourly.slice(-view.trimN)
+  const capped = hourly.length > view.trimN
+  const n = visible.length
+  // Columns spread over the whole plot width; the pitch floor above only caps
+  // how many hours show, so a short range is not letterboxed into the middle.
+  const step = n > 1 ? (view.avail - padL - padR) / (n - 1) : Math.max(1, view.avail - padL - padR)
+  const barW = Math.max(3, Math.min(28, step * 0.66))
+  const barHalf = barW / 2
+  const plotWUsed = view.avail
+  const maxCost = Math.max(0.0001, ...visible.map((d) => d.cost))
+  const ticks = niceTicks(maxCost, 4)
+  // The hour label is wide, so labels space out further than the day chart's.
+  const labelEvery = Math.max(1, Math.ceil(70 / step))
+
+  const peakCost = visible.reduce((sum, d) => sum + (d.peak ? d.cost : 0), 0)
+  const totalCost = visible.reduce((sum, d) => sum + d.cost, 0)
+
+  // Token curves: a shared token scale across all three series (so their
+  // heights are comparable to each other), mapped onto the same plot box as
+  // the cost bars. Cost and tokens differ in magnitude, so the curves get
+  // their own right-hand axis instead of sharing the cost one.
+  const xOf = (i: number) => padL + barHalf + i * step
+  // The token axis sits in the right gutter, independent of where the last
+  // bar lands, so its labels never spill past the viewBox edge.
+  const tokenAxisX = view.avail - padR + 8
+  const maxTokens = Math.max(1, ...visible.flatMap((d) => HOUR_CURVES.map((c) => d[c.key])))
+  const tokenTicks = niceTicks(maxTokens, 3)
+  const curvePaths = HOUR_CURVES.map((c) => ({
+    ...c,
+    d: smoothPath(visible.map((h, i) => ({
+      x: xOf(i),
+      y: padT + plotH - (h[c.key] / maxTokens) * plotH,
+    }))),
+  }))
+
+  return (
+    <section className={css.section}>
+      <div className={css.sectionHead}>
+        <h3 className={css.sectionTitle}>
+          {t('hourlyUsage')}
+          <span className={css.sectionNote}>
+            {COST_SYMBOL}{formatCost(totalCost)} · {t('costPeak')} {COST_SYMBOL}{formatCost(peakCost)}
+          </span>
+        </h3>
+        {capped && <span className={css.trendNote}>{t('trendLimited').replace('{n}', String(view.trimN))}</span>}
+      </div>
+      <div className={css.chartWrap} ref={wrapRef}>
+        <svg className={css.chart} width="100%" height={H} viewBox={`0 0 ${plotWUsed} ${H}`} onMouseLeave={() => setTip(null)}>
+          {ticks.map((tk) => {
+            const y = padT + plotH - (tk / maxCost) * plotH
+            return (
+              <g key={tk}>
+                <line className={css.grid} x1={padL} y1={y} x2={padL + (n - 1) * step + barW} y2={y} />
+                <text className={css.axis} x={padL - 6} y={y + 3} textAnchor="end">{formatCostCompact(tk)}</text>
+              </g>
+            )
+          })}
+          {visible.map((d, i) => {
+            const x = padL + barHalf + i * step - barW / 2
+            const h = (d.cost / maxCost) * plotH
+            return (
+              <g key={d.hour}>
+                <rect
+                  className={clsx(css.bar, d.peak ? css.hourBarPeak : css.hourBarOff)}
+                  x={x}
+                  y={padT + plotH - h}
+                  width={barW}
+                  height={h}
+                />
+                <rect
+                  className={css.barHit}
+                  x={x}
+                  y={padT}
+                  width={barW}
+                  height={plotH}
+                  onMouseEnter={(e) => setTip({ h: d, anchor: e.currentTarget })}
+                  onMouseLeave={() => setTip(null)}
+                />
+                {(i % labelEvery === 0 || i === n - 1) && (
+                  <text className={css.axis} x={padL + barHalf + i * step} y={H - 8} textAnchor="middle">{shortDayHour(d.hour)}</text>
+                )}
+              </g>
+            )
+          })}
+          {curvePaths.map((c) => (
+            <path key={c.key} className={css.hourCurve} d={c.d} fill="none" stroke={c.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          ))}
+          {tip && (
+            <circle className={css.hourCurveDot} cx={xOf(visible.indexOf(tip.h))} cy={padT + plotH - (tip.h.input / maxTokens) * plotH} r={3.5} fill="var(--dsw-chart-1)" />
+          )}
+          {tokenTicks.map((tk) => {
+            const y = padT + plotH - (tk / maxTokens) * plotH
+            return (
+              <text key={`tok-${tk}`} className={clsx(css.axis, css.axisTokens)} x={tokenAxisX} y={y + 3}>{formatCompact(tk)}</text>
+            )
+          })}
+        </svg>
+        {tip && (
+          <ChartTip anchor={tip.anchor} panelRef={panelRef}>
+            <div className={css.tipTitle}>
+              {shortDayHour(tip.h.hour)}
+              {tip.h.peak ? ` · ${t('peakHour')}` : ` · ${t('offPeakHour')}`}
+            </div>
+            <div>{t('cost')}: {COST_SYMBOL}{formatCost(tip.h.cost)}</div>
+            <div>{t('inputTokens')}: {formatTokens(tip.h.input)}</div>
+            <div>{t('outputTokens')}: {formatTokens(tip.h.output)}</div>
+            <div>{t('cacheReadTokens')}: {formatTokens(tip.h.cacheHit)}</div>
+            <div>{t('requests')}: {tip.h.requests}</div>
+          </ChartTip>
+        )}
+        <div className={css.legend}>
+          <span className={css.legendItem} aria-hidden="true">
+            <i className={clsx(css.legendSwatch, css.hourBarPeak)} />
+            {t('peakHour')}
+          </span>
+          <span className={css.legendItem} aria-hidden="true">
+            <i className={clsx(css.legendSwatch, css.hourBarOff)} />
+            {t('offPeakHour')}
+          </span>
+          {HOUR_CURVES.map((c) => (
+            <span key={c.key} className={css.legendItem}>
+              <i className={css.legendCurve} style={{ background: c.color }} />
+              {t(c.label)}
+            </span>
+          ))}
+          <span className={css.sectionNote}>{t('hourlyNote')}</span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ── Section 6: stacked daily token trend ──────────────────────────────────
 
 function DailyTrend({ models, daily, t, colorForModel, panelRef }: { models: GroupedModel[]; daily: GroupedDaily[]; t: Translator; colorForModel: (m: string) => string; panelRef: RefObject<HTMLDivElement | null> }) {
   const [tip, setTip] = useState<{ day: string; total: number; byModel: Record<string, number>; otherByModel?: Record<string, number>; cacheHit: number; cacheMiss: number; anchor: Element } | null>(null)
@@ -956,6 +1180,7 @@ function ModelUsage({ models, t, colorForModel, panelRef }: { models: GroupedMod
                 <div className={css.modelValues}>
                   <span className={css.modelTokens}>{formatTokens(m.tokens)}</span>
                   <span className={css.modelPct}>{formatPercent(m.percent)}</span>
+                  <span className={css.modelCost}>{COST_SYMBOL}{formatCost(m.cost)}</span>
                 </div>
               </li>
             )
@@ -973,6 +1198,7 @@ function ModelUsage({ models, t, colorForModel, panelRef }: { models: GroupedMod
                     <div className={css.modelValues}>
                       <span className={css.modelTokens}>{formatTokens(it.tokens)}</span>
                       <span className={css.modelPct}>{formatPercent(it.percent)}</span>
+                      <span className={css.modelCost}>{COST_SYMBOL}{formatCost(it.cost)}</span>
                     </div>
                   </li>
                 ))}
@@ -1100,6 +1326,7 @@ function ProviderUsage({ providers, t, colorForProvider, panelRef }: { providers
                   <div className={css.modelValues}>
                     <span className={css.modelTokens}>{formatTokens(p.tokens)}</span>
                     <span className={css.modelPct}>{formatPercent(p.percent)}</span>
+                    <span className={css.modelCost}>{COST_SYMBOL}{formatCost(p.cost)}</span>
                   </div>
                 </li>
                 {/* The detail list is a SIBLING of the row and never carries a
@@ -1139,6 +1366,7 @@ function ProviderUsage({ providers, t, colorForProvider, panelRef }: { providers
                                   <div className={css.modelValues}>
                                     <span className={css.modelTokens}>{formatTokens(f.tokens)}</span>
                                     <span className={css.modelPct}>{formatPercent(f.percent)}</span>
+                                    <span className={css.modelCost}>{COST_SYMBOL}{formatCost(f.cost)}</span>
                                   </div>
                                 </li>
                                 {f.models.length > 0 && (
@@ -1153,6 +1381,7 @@ function ProviderUsage({ providers, t, colorForProvider, panelRef }: { providers
                                           <div className={css.modelValues}>
                                             <span className={css.modelTokens}>{formatTokens(m.tokens)}</span>
                                             <span className={css.modelPct}>{formatPercent(m.percent)}</span>
+                                            <span className={css.modelCost}>{COST_SYMBOL}{formatCost(m.cost)}</span>
                                           </div>
                                         </li>
                                       ))}
@@ -1174,6 +1403,7 @@ function ProviderUsage({ providers, t, colorForProvider, panelRef }: { providers
                               <div className={css.modelValues}>
                                 <span className={css.modelTokens}>{formatTokens(m.tokens)}</span>
                                 <span className={css.modelPct}>{formatPercent(m.percent)}</span>
+                                <span className={css.modelCost}>{COST_SYMBOL}{formatCost(m.cost)}</span>
                               </div>
                             </li>
                           ))}

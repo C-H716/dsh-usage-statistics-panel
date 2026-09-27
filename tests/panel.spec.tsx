@@ -39,7 +39,7 @@ describe('UsageStatsSection', () => {
     const RANGE = {
       from: '2026-08-01', to: '2026-08-26', tokens: 12_345, requests: 3, turns: 2,
       cacheHit: 9_000, cacheMiss: 3_345, activeDays: 2, topModel: 'p/m', topProvider: 'p',
-      daily: [], models: [], providers: [],
+      daily: [], hourly: [], models: [], providers: [],
     }
     let rangeCalls = 0
     vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
@@ -75,6 +75,7 @@ describe('UsageStatsSection', () => {
         total: 100, byModel: { 'p/m': 100 }, byProvider: { p: 100 },
         requests: 1, turns: 1, cacheHit: 50, cacheMiss: 50,
       })),
+      hourly: [],
       models: [{ model: 'p/m', provider: 'p', tokens: 1000, percent: 100 }],
       providers: [{ provider: 'p', tokens: 1000, percent: 100 }],
     }
@@ -97,7 +98,7 @@ describe('UsageStatsPanelPage', () => {
   const RANGE = {
     from: '2026-08-01', to: '2026-08-26', tokens: 12_345, requests: 3, turns: 2,
     cacheHit: 9_000, cacheMiss: 3_345, activeDays: 2, topModel: 'p/m', topProvider: 'p',
-    daily: [], models: [], providers: [],
+    daily: [], hourly: [], models: [], providers: [],
   }
 
   it('wraps the panel in the content column the Plugins page gives it, with the back control', async () => {
