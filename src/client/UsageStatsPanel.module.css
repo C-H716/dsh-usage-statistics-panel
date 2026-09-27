@@ -118,9 +118,41 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.refresh {
-  margin-left: auto;
+/* The trailing action pair. It is ONE flex item of the wrapping toolbar: were
+   the two buttons siblings of the toolbar instead, a narrow container could
+   wrap them apart and strand the rebuild button on a line of its own. The
+   container — not the refresh button — carries the trailing auto margin, so
+   the pair always rides the right edge together, and `nowrap` keeps it whole. */
+.actions {
+  display: inline-flex;
   flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* Both actions share one width, so the pair never changes shape as a label
+   swaps between idle, confirm, and in-flight. 92px is measured rather than
+   guessed: at the sm button's 12px / `0 10px` geometry the widest label across
+   the three languages is English `Rebuilding…` at 91.4px (zh / zh-TW
+   `确认重建？` needs 80.0px), so 92px holds every state in all three without a
+   button ever growing. */
+.refresh,
+.rebuild {
+  flex: 0 0 auto;
+  min-width: 92px;
+}
+
+/* Armed rebuild: red ink on a light red wash, the recipe the host's own
+   destructive card action uses (`ui-plugin-manager`'s `.danger`), including
+   the rebound hover so the outline variant washes red instead of gray. */
+.rebuildArmed,
+.rebuildArmed:hover:not(:disabled) {
+  color: var(--dsw-alias-state-error-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
 }
 
 /* ── states ────────────────────────────────────────────────────────────── */

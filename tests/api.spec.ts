@@ -8,7 +8,7 @@
  * (`src/routes.ts`), because only the browser half is relative.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchRange, UsageApiError } from '../src/client/api.ts'
+import { fetchRange, rebuildStats, UsageApiError } from '../src/client/api.ts'
 
 /** A Response stand-in: the client only ever reads `.json()`. */
 function jsonResponse(body: unknown): Response {
@@ -45,5 +45,15 @@ describe('usage api request path', () => {
     const err = await fetchRange({ range: '30' }).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(UsageApiError)
     expect((err as UsageApiError).code).toBe('network')
+  })
+
+  it('rebuilds through the reset endpoint and returns the scan status', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', (url: string) => {
+      urls.push(url)
+      return Promise.resolve(jsonResponse({ ok: true, value: { running: false, total: 0, done: 0, scannedSessions: 7 } }))
+    })
+    await expect(rebuildStats()).resolves.toMatchObject({ scannedSessions: 7 })
+    expect(urls).toEqual(['usage/api/reset'])
   })
 })

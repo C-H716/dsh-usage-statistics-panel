@@ -121,3 +121,99 @@ describe('UsageStatsPanelPage', () => {
     expect(goBack).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('rebuild action', () => {
+  const RANGE = {
+    from: '2026-08-01', to: '2026-08-26', tokens: 12_345, requests: 3, turns: 2,
+    cacheHit: 9_000, cacheMiss: 3_345, activeDays: 2, topModel: 'p/m', topProvider: 'p',
+    daily: [], models: [], providers: [],
+  }
+
+  /** A fetch stub that records every path the panel asks for. */
+  function stubFetch(paths: string[]): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      paths.push(url)
+      return { ok: true, json: async () => ({ ok: true, value: RANGE }) } as unknown as Response
+    }))
+  }
+
+  const settle = async (): Promise<void> => {
+    await act(async () => { await new Promise((r) => { setTimeout(r, 0) }) })
+  }
+
+  it('clears the store only on the second press', async () => {
+    const paths: string[] = []
+    stubFetch(paths)
+    render(<UsageStatsSection {...({ t } as UsageStatsSectionProps)} />)
+    await settle()
+    const resets = (): number => paths.filter((p) => p === 'usage/api/reset').length
+
+    // One press arms the action and sends nothing: the rebuild is destructive,
+    // so it must take a deliberate second press.
+    fireEvent.click(screen.getByRole('button', { name: 'rebuild' }))
+    expect(screen.getByRole('button', { name: 'rebuildConfirm' })).toBeTruthy()
+    expect(resets()).toBe(0)
+
+    // The second press is the confirmation.
+    fireEvent.click(screen.getByRole('button', { name: 'rebuildConfirm' }))
+    await settle()
+    expect(resets()).toBe(1)
+    // Settling disarms it again, and both surfaces read the rebuilt store.
+    expect(screen.getByRole('button', { name: 'rebuild' })).toBeTruthy()
+    expect(paths.filter((p) => p === 'usage/api/range').length).toBeGreaterThan(1)
+  })
+
+  it('disarms on blur, so a primed destructive control is never left behind', async () => {
+    const paths: string[] = []
+    stubFetch(paths)
+    render(<UsageStatsSection {...({ t } as UsageStatsSectionProps)} />)
+    await settle()
+
+    fireEvent.click(screen.getByRole('button', { name: 'rebuild' }))
+    expect(screen.getByRole('button', { name: 'rebuildConfirm' })).toBeTruthy()
+    fireEvent.blur(screen.getByRole('button', { name: 'rebuildConfirm' }))
+    expect(screen.getByRole('button', { name: 'rebuild' })).toBeTruthy()
+    expect(paths.filter((p) => p === 'usage/api/reset')).toHaveLength(0)
+  })
+
+  it('keeps both toolbar actions in one flex item, so a narrow toolbar cannot split them', async () => {
+    stubFetch([])
+    render(<UsageStatsSection {...({ t } as UsageStatsSectionProps)} />)
+    await settle()
+
+    const refresh = screen.getByRole('button', { name: 'refresh' })
+    const rebuild = screen.getByRole('button', { name: 'rebuild' })
+    // A Tooltip clones its child instead of wrapping it, so each button's own
+    // parent is the pair container. That container is what carries the trailing
+    // auto margin: were the buttons siblings of the wrapping toolbar, a narrow
+    // panel could wrap them apart and strand the rebuild button alone.
+    expect(refresh.parentElement).toBe(rebuild.parentElement)
+    expect(refresh.parentElement?.className).toContain('actions')
+    expect(refresh.parentElement?.parentElement?.className).toContain('toolbar')
+  })
+
+  it('holds the in-flight label and stays locked until the rebuild settles', async () => {
+    const gate: { release?: () => void } = {}
+    const scan = { running: true, total: 0, done: 0, scannedSessions: 0 }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url !== 'usage/api/reset') {
+        return { ok: true, json: async () => ({ ok: true, value: RANGE }) } as unknown as Response
+      }
+      await new Promise<void>((resolve) => { gate.release = resolve })
+      return { ok: true, json: async () => ({ ok: true, value: scan }) } as unknown as Response
+    }))
+    render(<UsageStatsSection {...({ t } as UsageStatsSectionProps)} />)
+    await settle()
+
+    fireEvent.click(screen.getByRole('button', { name: 'rebuild' }))
+    fireEvent.click(screen.getByRole('button', { name: 'rebuildConfirm' }))
+
+    // Still in flight: the label says so (the dictionary word plus the ellipsis
+    // the panel glues on) and a second press cannot slip in.
+    const pending = screen.getByRole('button', { name: 'rebuilding…' })
+    expect(pending.hasAttribute('disabled')).toBe(true)
+
+    await act(async () => { gate.release?.(); await new Promise((r) => { setTimeout(r, 0) }) })
+    expect(screen.getByRole('button', { name: 'rebuild' })).toBeTruthy()
+  })
+})
