@@ -60,7 +60,7 @@ Token 桶语义：`inputTokens` 是 uncached input（即缓存 miss 侧），`ca
 
 ### index.tsx — 面板与侧栏入口注册
 
-本插件注册三个面板相关槽位：`plugins.bundle.config`（keyed，键为本 bundle 的 npm 包名）把面板渲染进插件页里该组合包的详情页；`main`（keyed，键 `usage-stats`）把它注册成一个全局主面板；`sidebar.panellist`（list，id `usage-stats`，order 30）在左侧栏「新会话」下方加一行，点击即切到该主面板。面板因此由**同一组件渲染在两处**，`UsageStatsPanelPage` 用与插件页相同的 960px 内容列包住它（模块 css 的 `.page` 逐条镜像插件页自己的 `.page`，含 padding 与前景色 token），两处外观一致。locale 座绑定 `usageStats` 命名空间（en/zh/zh-TW 三份字典）；面板数值格式化跟随当前语言——中文显示 亿/万（简）或 億/萬（繁），英文用 k/M/B 图表惯例。组件经 `/usage/api` fetch 数据，不直接触 ctx（返回控制是唯一例外：主面板的 `goBack` 经槽位 `inject` 传入，见下）。
+本插件注册三个面板相关槽位：`plugins.bundle.config`（keyed，键为本 bundle 的 npm 包名）把面板渲染进插件页里该组合包的详情页；`main`（keyed，键 `usage-stats`）把它注册成一个全局主面板；`sidebar.panellist`（list，id `usage-stats`，order 30）在左侧栏「新会话」下方加一行，点击即切到该主面板。面板因此由**同一组件渲染在两处**，`UsageStatsPanelPage` 用与插件页相同的 960px 内容列包住它（模块 css 的 `.page` 镜像插件页自己的 `.page`：左右与底部内边距、前景色 token 逐条对齐——**唯顶部那 28px 例外**，它落在返回行 `.backRow` 自己的盒子上。主面板贴着窗口左上角，若把这 28px 画在滚动容器上，顶部条带就归属容器而不参与窗口拖拽；宿主的两个页面型插件 `ui-plugin-manager`（`.pageHead`/`.detailTop`）与 `ui-schedule` 出于同一原因把该内边距移到头部行。搬移前后渲染逐像素一致），两处外观一致。locale 座绑定 `usageStats` 命名空间（en/zh/zh-TW 三份字典）；面板数值格式化跟随当前语言——中文显示 亿/万（简）或 億/萬（繁），英文用 k/M/B 图表惯例。组件经 `/usage/api` fetch 数据，不直接触 ctx（返回控制是唯一例外：主面板的 `goBack` 经槽位 `inject` 传入，见下）。
 
 ### index.tsx — 主面板的返回控制
 

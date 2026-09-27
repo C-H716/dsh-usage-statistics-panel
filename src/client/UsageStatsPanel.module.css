@@ -10,8 +10,16 @@
 
 /* The panel as a standalone main panel. It gets the same 960px content column
    the Plugins page gives it — the declarations below mirror the Plugins page's
-   own `.page` (padding and all) so both entries render identically. Without the
-   cap the charts would stretch to whatever the centre column happens to be. */
+   own `.page` so both entries render identically. Without the cap the charts
+   would stretch to whatever the centre column happens to be.
+
+   One deliberate difference from that page: its 28px top inset is NOT part of
+   this container. A main panel starts at the window's top-left corner, so an
+   inset painted by this scrolling container is a strip above the content that
+   no window-drag region covers; `.backRow` below owns the inset instead, which
+   is the shape the shipped page plugins use for the same reason
+   (`ui-plugin-manager`'s `.pageHead`/`.detailTop` and `ui-schedule`'s page
+   head). The rendered position is unchanged. */
 .page {
   display: flex;
   flex-direction: column;
@@ -19,7 +27,7 @@
   box-sizing: border-box;
   height: 100%;
   overflow: auto;
-  padding: 28px clamp(24px, 4vw, 48px) 48px;
+  padding: 0 clamp(24px, 4vw, 48px) 48px;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -31,9 +39,17 @@
 /* The standalone panel's back control. Only the main panel renders this seat —
    the Plugins page entry already sits inside the page's own chrome, which
    draws its own crumb back to the bundle list. The spacing matches the gap the
-   panel keeps between its own sections. */
+   panel keeps between its own sections.
+
+   The row also carries the panel's former 28px top inset: it starts at the
+   window's top edge, so the whole strip above the back control drags the
+   window (Electron app-regions are geometry, not stacking, so a strip owned by
+   the scrolling container would subtract itself from the drag row beneath
+   it). */
 .backRow {
   display: flex;
+  box-sizing: border-box;
+  padding-top: 28px;
   margin-bottom: 18px;
 }
 
