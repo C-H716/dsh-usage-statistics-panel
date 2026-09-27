@@ -94,6 +94,8 @@ Token 桶语义：`inputTokens` 是 uncached input（即缓存 miss 侧），`ca
 - client bundle ×2：`lib/client.js`（官方 profile 通道，id=包名）与 `lib/client-registry.js`（注册表通道，id=manifest id），lazy-CJS factory（`window.__ModuleLoader__.load`），external 走模块表（react/cordis/dsh-client-* 白名单），其余内联，purity gate 拒非白名单 `@deepseek-ai` 值导入
 - CSS Modules（lightningcss）哈希类名 + `<style data-plugin>` 注入
 
+插件的卡片元数据（插件页卡片 / 详情页 / 组合包行的标题、描述、图标）走宿主既有通道，不经过本包任何代码：`package.json.icon`（顶层字段，包内相对路径，SVG/PNG/JPEG/WebP 且 ≤256 KiB）与 `locale/*.json` 中的 `meta.title` / `meta.description`，由 app-boot 的 `readPluginMeta()` 在不执行插件代码的前提下读取。两个易踩的坑：① 本包声明了 `exports`，因此**必须**显式导出 `./locale/*.json`——子路径解析失败会被当作"没有 locale"，静默回落成包名 + 英文描述；② locale 目录整体被读取：文件名去掉 `.json` 后必须是 `2–8 个字母` 起头、其后每段 `1–8 位字母数字` 的语言 id（`zh-TW` 合法，`zh_TW`、`traditional` 不合法），名字不合规或与另一份小写后重名，会让**整次**读取降级为一条诊断错误（标题与描述一起丢失）。这两条与本包的三份字典（en / zh / zh-TW）都由 `tests/manifest-consistency.spec.ts` 守卫；该守卫比读取端更严：每份字典都必须带非空的 `meta.title` / `meta.description`，以免目录里混进无害但无意义的空字典。
+
 > 通道状态：harness 0.1.x 的官方加载链只消费 package.json 的 `dsh.client` 声明 + `exports["./client"]`（entry id = 包名，即 `lib/client.js`）；`dsh.plugin.json` 与 `lib/client-registry.js` 目前不被 harness 任何代码读取，是为外部 registry 通道预留的产物。只装官方 profile 通道时二者可忽略。
 
 ## 已知限制
