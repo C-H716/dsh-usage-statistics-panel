@@ -62,6 +62,13 @@ export interface UsageSample {
 export interface RangeFilter {
   from: string // inclusive day key
   to: string // inclusive day key
+  /** Optional inclusive hour bounds narrowing the window inside [from, to].
+   *  A rolling window — the 24-hour preset — cannot be expressed with day keys
+   *  alone, so its exact edges ride here. A sample carrying no hour (a turn
+   *  marker, or a day-table row from a store whose hour table is still empty)
+   *  falls back to the day comparison alone, which can only widen the window. */
+  fromHour?: string
+  toHour?: string
 }
 
 /** Aggregate the samples intersecting [from, to]. Missing days yield zero
@@ -124,6 +131,14 @@ export function aggregateSamples(samples: Iterable<UsageSample>, filter: RangeFi
 
   for (const sample of samples) {
     if (sample.day < from || sample.day > to) continue
+    // Hour bounds narrow the rolling window inside the day span. A sample that
+    // carries no hour (a turn marker, or a day-table row) is judged by its day
+    // alone: the window widens rather than dropping rows the store cannot
+    // place on the clock.
+    if (sample.hour !== undefined && sample.hour !== '') {
+      if (filter.fromHour !== undefined && sample.hour < filter.fromHour) continue
+      if (filter.toHour !== undefined && sample.hour > filter.toHour) continue
+    }
     if (sample.turn) {
       out.turns++
       dayTurns.set(sample.day, (dayTurns.get(sample.day) ?? 0) + 1)

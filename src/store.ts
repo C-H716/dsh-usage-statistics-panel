@@ -469,6 +469,24 @@ export class UsageStore {
     return out
   }
 
+  /** The earliest day carrying any row, or null when the store is empty.
+   *
+   *  Both tables are scanned: token traffic is authoritative on the hour
+   *  table while a turn-only row lives on the day table, and either can be
+   *  the oldest. The 'all' range preset anchors its lower bound here, because
+   *  only the store knows when recording began. */
+  async earliestDay(): Promise<string | null> {
+    await this.ready
+    let best: string | null = null
+    const consider = (day: string): void => {
+      if (day === '') return
+      if (best === null || day < best) best = day
+    }
+    for (const [, row] of this.table?.entries() ?? []) consider(row.day)
+    for (const [, row] of this.hourTable?.entries() ?? []) consider(row.hour.slice(0, 10))
+    return best
+  }
+
   /** All rows whose day intersects [from, to] (inclusive). */
   async rangeRows(from: string, to: string): Promise<UsageDayRow[]> {
     await this.ready

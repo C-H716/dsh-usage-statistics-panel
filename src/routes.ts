@@ -14,7 +14,7 @@ import type { UsageHttpRequest, UsageHttpResponse, UsageWebRoute } from './conte
 import { UsageStore } from './store.ts'
 import { UsageCollector } from './collector.ts'
 import { aggregateSamples } from './query.ts'
-import { dayOfHourKey } from './shared.ts'
+import { dayKey, dayOfHourKey } from './shared.ts'
 import type { UsageSample } from './query.ts'
 import type { BackfillStatus, UsageStatsRange, UsageStatsRequest } from './wire.ts'
 import { UsageError, readJsonBody, writeError, writeJson } from './wire.ts'
@@ -52,19 +52,33 @@ function parseDayKey(value: string): { y: number; m: number; d: number } | null 
  *  size and the response body against a misbehaving trusted client. */
 const MAX_CUSTOM_SPAN_DAYS = 366
 
-/** Resolve a request's [from, to] into inclusive local day keys. */
-export function resolveRange(req: UsageStatsRequest, now = new Date()): { from: string; to: string } {
+/** Resolve a request's [from, to] into inclusive local day keys, plus the
+ *  hour bounds a rolling window needs.
+ *
+ *  Every preset except `24h` maps onto whole local days, so its bounds stay
+ *  day-only. The 24-hour preset is a rolling window whose edges fall mid-day,
+ *  and a day key cannot express them: the returned `fromHour`/`toHour` carry
+ *  the exact hour edges for {@link aggregateRange} to apply. */
+export function resolveRange(req: UsageStatsRequest, now = new Date()): { from: string; to: string; fromHour?: string; toHour?: string } {
   const day = (d: Date): string => {
     const y = d.getFullYear()
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     return `${y}-${m}-${day}`
   }
+  const hour = (d: Date): string => `${day(d)}T${String(d.getHours()).padStart(2, '0')}`
   const toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 0)
   switch (req.range) {
     case 'today': {
-      // A single local calendar day: the panel's narrowest preset.
+      // A single local calendar day: the panel's narrowest day-granular preset.
       return { from: day(toDate), to: day(toDate) }
+    }
+    case '24h': {
+      // A rolling 24-hour window ending now. Both edges are stamped as hour
+      // keys so the aggregation can cut the two boundary days at the exact
+      // hour instead of counting them whole.
+      const fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      return { from: day(fromDate), to: day(toDate), fromHour: hour(fromDate), toHour: hour(now) }
     }
     case 'yesterday': {
       const from = new Date(toDate)
@@ -109,6 +123,25 @@ export function resolveRange(req: UsageStatsRequest, now = new Date()): { from: 
   }
 }
 
+/** Resolve a request into concrete bounds, consulting the store where a preset
+ *  cannot be answered from the clock alone.
+ *
+ *  Only the `all` preset needs this second stage: its lower bound is the day
+ *  recording began, which lives in the store rather than in any date
+ *  arithmetic. An empty store yields today as both bounds, so the panel shows
+ *  an empty range instead of an unbounded scan. Every other preset is fully
+ *  determined by the clock and delegates to {@link resolveRange}. */
+export async function resolveRequestRange(
+  store: UsageStore,
+  req: UsageStatsRequest,
+  now = new Date(),
+): Promise<{ from: string; to: string; fromHour?: string; toHour?: string }> {
+  if (req.range !== 'all') return resolveRange(req, now)
+  const to = dayKey(now.getTime())
+  const earliest = await store.earliestDay()
+  return { from: earliest ?? to, to }
+}
+
 /** Build the aggregate for a range from the store rows.
  *
  *  Token traffic and per-call counts are read from the HOUR table, not the day
@@ -124,8 +157,8 @@ export function resolveRange(req: UsageStatsRequest, now = new Date()): { from: 
  *
  *  Every count is yielded lazily as a marker, so no intermediate array is
  *  materialized regardless of range size. */
-export async function aggregateRange(store: UsageStore, from: string, to: string): Promise<UsageStatsRange> {
-  const hourRows = await store.rangeHourRows(`${from}T00`, `${to}T23`)
+export async function aggregateRange(store: UsageStore, from: string, to: string, hourBounds?: { fromHour?: string; toHour?: string }): Promise<UsageStatsRange> {
+  const hourRows = await store.rangeHourRows(hourBounds?.fromHour ?? `${from}T00`, hourBounds?.toHour ?? `${to}T23`)
   const dayRows = await store.rangeRows(from, to)
   const samples = (function* (): Generator<UsageSample> {
     if (hourRows.length > 0) {
@@ -176,7 +209,7 @@ export async function aggregateRange(store: UsageStore, from: string, to: string
       }
     }
   })()
-  return aggregateSamples(samples, { from, to })
+  return aggregateSamples(samples, { from, to, ...hourBounds })
 }
 
 /** Build the single fenced prefix route serving the /usage/api JSON RPC.
@@ -199,8 +232,8 @@ export function buildUsageRoute(ctx: Context, deps: RoutesDeps): UsageWebRoute {
     try {
       if (method === 'POST' && path === '/usage/api/range') {
         const body = (await readJsonBody(req)) as Partial<UsageStatsRequest>
-        const { from, to } = resolveRange(body as UsageStatsRequest)
-        const stats = await aggregateRange(deps.store, from, to)
+        const { from, to, fromHour, toHour } = await resolveRequestRange(deps.store, body as UsageStatsRequest)
+        const stats = await aggregateRange(deps.store, from, to, { fromHour, toHour })
         writeJson(res, { ok: true, value: stats })
         return
       }

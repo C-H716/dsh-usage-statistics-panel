@@ -34,7 +34,7 @@ import css from './UsageStatsPanel.module.css'
 
 type Translator = UsageStatsTranslator
 
-const RANGE_PRESETS = ['today', 'yesterday', '7', '14', '30', '90'] as const
+const RANGE_PRESETS = ['today', 'yesterday', '24h', '7', '14', '30', '90', 'all'] as const
 
 // The heatmap's DATA WINDOW: one year, fixed regardless of the range preset.
 // It is the window, not the number of weeks drawn — the render trims columns

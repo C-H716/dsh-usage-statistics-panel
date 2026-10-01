@@ -15,10 +15,12 @@ export type UsageStatsKey =
   | 'range'
   | 'rangePreset.today'
   | 'rangePreset.yesterday'
+  | 'rangePreset.24h'
   | 'rangePreset.7'
   | 'rangePreset.14'
   | 'rangePreset.30'
   | 'rangePreset.90'
+  | 'rangePreset.all'
   | 'rangeCustom'
   | 'from'
   | 'to'
@@ -95,10 +97,12 @@ export const en: Record<UsageStatsKey, string> = {
   range: 'Time range',
   'rangePreset.today': 'Today',
   'rangePreset.yesterday': 'Yesterday',
+  'rangePreset.24h': 'Last 24 hours',
   'rangePreset.7': 'Last 7 days',
   'rangePreset.14': 'Last 14 days',
   'rangePreset.30': 'Last 30 days',
   'rangePreset.90': 'Last 90 days',
+  'rangePreset.all': 'All time',
   rangeCustom: 'Custom',
   from: 'From',
   to: 'To',
@@ -176,10 +180,12 @@ export const zh: Record<UsageStatsKey, string> = {
   range: '时间范围',
   'rangePreset.today': '当天',
   'rangePreset.yesterday': '昨天',
+  'rangePreset.24h': '24 小时内',
   'rangePreset.7': '最近 7 天',
   'rangePreset.14': '最近 14 天',
   'rangePreset.30': '最近 30 天',
   'rangePreset.90': '最近 90 天',
+  'rangePreset.all': '全部',
   rangeCustom: '自定义',
   from: '开始日期',
   to: '结束日期',
@@ -257,10 +263,12 @@ export const zhTW: Record<UsageStatsKey, string> = {
   range: '時間範圍',
   'rangePreset.today': '當天',
   'rangePreset.yesterday': '昨天',
+  'rangePreset.24h': '24 小時內',
   'rangePreset.7': '最近 7 天',
   'rangePreset.14': '最近 14 天',
   'rangePreset.30': '最近 30 天',
   'rangePreset.90': '最近 90 天',
+  'rangePreset.all': '全部',
   rangeCustom: '自訂',
   from: '開始日期',
   to: '結束日期',

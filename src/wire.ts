@@ -107,7 +107,7 @@ export interface UsageStatsRange {
 
 /** The usage statistics panel aggregate request. */
 export interface UsageStatsRequest {
-  range: string // "today" | "yesterday" | "7" | "14" | "30" | "90" | "custom"
+  range: string // "today" | "yesterday" | "24h" | "7" | "14" | "30" | "90" | "all" | "custom"
   from?: string // "YYYY-MM-DD", custom only
   to?: string // "YYYY-MM-DD", custom only
 }
