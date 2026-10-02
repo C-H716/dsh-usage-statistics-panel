@@ -60,7 +60,7 @@ Token 桶语义：`inputTokens` 是 uncached input（即缓存 miss 侧），`ca
 
 ### index.tsx — 面板与侧栏入口注册
 
-本插件注册三个面板相关槽位：`plugins.bundle.config`（keyed，键为本 bundle 的 npm 包名）把面板渲染进插件页里该组合包的详情页；`main`（keyed，键 `usage-stats`）把它注册成一个全局主面板；`sidebar.panellist`（list，id `usage-stats`，order 30）在左侧栏「新会话」下方加一行，点击即切到该主面板。面板因此由**同一组件渲染在两处**，`UsageStatsPanelPage` 用与插件页相同的 960px 内容列包住它（模块 css 的 `.page` 逐条镜像插件页自己的 `.page`，含 padding 与前景色 token），两处外观一致。locale 座绑定 `usageStats` 命名空间（en/zh/zh-TW 三份字典）；面板数值格式化跟随当前语言——中文显示 亿/万（简）或 億/萬（繁），英文用 k/M/B 图表惯例。组件经 `/usage/api` fetch 数据，不直接触 ctx（返回控制是唯一例外：主面板的 `goBack` 经槽位 `inject` 传入，见下）。
+本插件注册三个面板相关槽位：`plugins.bundle.config`（keyed，键为本 bundle 的 npm 包名）把面板渲染进插件页里该组合包的详情页；`main`（keyed，键 `usage-stats`）把它注册成一个全局主面板；`sidebar.panellist`（list，id `usage-stats`，order 30）在左侧栏「新会话」下方加一行，点击即切到该主面板。面板因此由**同一组件渲染在两处**，`UsageStatsPanelPage` 用与插件页相同的 960px 内容列包住它（模块 css 的 `.page` 镜像插件页自己的 `.page`：左右与底部内边距、前景色 token 逐条对齐——**唯顶部那 28px 例外**，它落在返回行 `.backRow` 自己的盒子上。主面板贴着窗口左上角，若把这 28px 画在滚动容器上，顶部条带就归属容器而不参与窗口拖拽；宿主的两个页面型插件 `ui-plugin-manager`（`.pageHead`/`.detailTop`）与 `ui-schedule` 出于同一原因把该内边距移到头部行。搬移前后渲染逐像素一致），两处外观一致。locale 座绑定 `usageStats` 命名空间（en/zh/zh-TW 三份字典）；面板数值格式化跟随当前语言——中文显示 亿/万（简）或 億/萬（繁），英文用 k/M/B 图表惯例。组件经 `/usage/api` fetch 数据，不直接触 ctx（返回控制是唯一例外：主面板的 `goBack` 经槽位 `inject` 传入，见下）。
 
 ### index.tsx — 主面板的返回控制
 
@@ -93,6 +93,8 @@ Token 桶语义：`inputTokens` 是 uncached input（即缓存 miss 侧），`ca
 - host ESM → `lib/index.js`
 - client bundle ×2：`lib/client.js`（官方 profile 通道，id=包名）与 `lib/client-registry.js`（注册表通道，id=manifest id），lazy-CJS factory（`window.__ModuleLoader__.load`），external 走模块表（react/cordis/dsh-client-* 白名单），其余内联，purity gate 拒非白名单 `@deepseek-ai` 值导入
 - CSS Modules（lightningcss）哈希类名 + `<style data-plugin>` 注入
+
+插件的卡片元数据（插件页卡片 / 详情页 / 组合包行的标题、描述、图标）走宿主既有通道，不经过本包任何代码：`package.json.icon`（顶层字段，包内相对路径，SVG/PNG/JPEG/WebP 且 ≤256 KiB）与 `locale/*.json` 中的 `meta.title` / `meta.description`，由 app-boot 的 `readPluginMeta()` 在不执行插件代码的前提下读取。两个易踩的坑：① 本包声明了 `exports`，因此**必须**显式导出 `./locale/*.json`——子路径解析失败会被当作"没有 locale"，静默回落成包名 + 英文描述；② locale 目录整体被读取：文件名去掉 `.json` 后必须是 `2–8 个字母` 起头、其后每段 `1–8 位字母数字` 的语言 id（`zh-TW` 合法，`zh_TW`、`traditional` 不合法），名字不合规或与另一份小写后重名，会让**整次**读取降级为一条诊断错误（标题与描述一起丢失）。这两条与本包的三份字典（en / zh / zh-TW）都由 `tests/manifest-consistency.spec.ts` 守卫；该守卫比读取端更严：每份字典都必须带非空的 `meta.title` / `meta.description`，以免目录里混进无害但无意义的空字典。
 
 > 通道状态：harness 0.1.x 的官方加载链只消费 package.json 的 `dsh.client` 声明 + `exports["./client"]`（entry id = 包名，即 `lib/client.js`）；`dsh.plugin.json` 与 `lib/client-registry.js` 目前不被 harness 任何代码读取，是为外部 registry 通道预留的产物。只装官方 profile 通道时二者可忽略。
 

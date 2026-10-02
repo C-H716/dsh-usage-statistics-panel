@@ -10,8 +10,16 @@
 
 /* The panel as a standalone main panel. It gets the same 960px content column
    the Plugins page gives it — the declarations below mirror the Plugins page's
-   own `.page` (padding and all) so both entries render identically. Without the
-   cap the charts would stretch to whatever the centre column happens to be. */
+   own `.page` so both entries render identically. Without the cap the charts
+   would stretch to whatever the centre column happens to be.
+
+   One deliberate difference from that page: its 28px top inset is NOT part of
+   this container. A main panel starts at the window's top-left corner, so an
+   inset painted by this scrolling container is a strip above the content that
+   no window-drag region covers; `.backRow` below owns the inset instead, which
+   is the shape the shipped page plugins use for the same reason
+   (`ui-plugin-manager`'s `.pageHead`/`.detailTop` and `ui-schedule`'s page
+   head). The rendered position is unchanged. */
 .page {
   display: flex;
   flex-direction: column;
@@ -19,7 +27,7 @@
   box-sizing: border-box;
   height: 100%;
   overflow: auto;
-  padding: 28px clamp(24px, 4vw, 48px) 48px;
+  padding: 0 clamp(24px, 4vw, 48px) 48px;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -31,9 +39,17 @@
 /* The standalone panel's back control. Only the main panel renders this seat —
    the Plugins page entry already sits inside the page's own chrome, which
    draws its own crumb back to the bundle list. The spacing matches the gap the
-   panel keeps between its own sections. */
+   panel keeps between its own sections.
+
+   The row also carries the panel's former 28px top inset: it starts at the
+   window's top edge, so the whole strip above the back control drags the
+   window (Electron app-regions are geometry, not stacking, so a strip owned by
+   the scrolling container would subtract itself from the drag row beneath
+   it). */
 .backRow {
   display: flex;
+  box-sizing: border-box;
+  padding-top: 28px;
   margin-bottom: 18px;
 }
 
@@ -102,9 +118,41 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.refresh {
-  margin-left: auto;
+/* The trailing action pair. It is ONE flex item of the wrapping toolbar: were
+   the two buttons siblings of the toolbar instead, a narrow container could
+   wrap them apart and strand the rebuild button on a line of its own. The
+   container — not the refresh button — carries the trailing auto margin, so
+   the pair always rides the right edge together, and `nowrap` keeps it whole. */
+.actions {
+  display: inline-flex;
   flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* Both actions share one width, so the pair never changes shape as a label
+   swaps between idle, confirm, and in-flight. 92px is measured rather than
+   guessed: at the sm button's 12px / `0 10px` geometry the widest label across
+   the three languages is English `Rebuilding…` at 91.4px (zh / zh-TW
+   `确认重建？` needs 80.0px), so 92px holds every state in all three without a
+   button ever growing. */
+.refresh,
+.rebuild {
+  flex: 0 0 auto;
+  min-width: 92px;
+}
+
+/* Armed rebuild: red ink on a light red wash, the recipe the host's own
+   destructive card action uses (`ui-plugin-manager`'s `.danger`), including
+   the rebound hover so the outline variant washes red instead of gray. */
+.rebuildArmed,
+.rebuildArmed:hover:not(:disabled) {
+  color: var(--dsw-alias-state-error-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
 }
 
 /* ── states ────────────────────────────────────────────────────────────── */

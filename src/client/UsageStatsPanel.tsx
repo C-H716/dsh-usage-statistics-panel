@@ -21,9 +21,9 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import clsx from 'clsx'
 import { Activity, ChevronDown, ChevronRight, Coins, Cpu, MessageSquare, MessagesSquare, Wallet } from 'lucide-react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DailyTokenUsage, HourlyTokenUsage, ModelTokenUsage, ProviderTokenUsage, UsageStatsRange, UsageStatsRequest } from '../wire.ts'
-import { fetchRange, UsageApiError } from './api.ts'
+import { fetchRange, rebuildStats, UsageApiError } from './api.ts'
 import { ChartTip } from './ChartTip.tsx'
 import { Donut, useDonutSize, type DonutSegment } from './Donut.tsx'
 import { formatTokens, formatCompact, formatPercent, formatCost, formatCostCompact, COST_SYMBOL, cacheRate, cacheRateText, daysBetween, localDay, indexOfDay, shortDay, shortDayHour, providerOf, modelNameOf, smoothPath, niceTicks } from './format.ts'
@@ -35,6 +35,9 @@ import css from './UsageStatsPanel.module.css'
 type Translator = UsageStatsTranslator
 
 const RANGE_PRESETS = ['today', 'yesterday', '24h', '7', '14', '30', '90', 'all'] as const
+
+/** How long the rebuild button stays armed without a second press. */
+const REBUILD_ARM_MS = 5000
 
 // The heatmap's DATA WINDOW: one year, fixed regardless of the range preset.
 // It is the window, not the number of weeks drawn — the render trims columns
@@ -85,6 +88,13 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
   const [range, setRange] = useState<string>('30')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  // The rebuild action is destructive (it clears the store and replays the
+  // logs), so it takes two presses: the first arms the button, the second
+  // runs. Arming cancels itself on blur, on Escape, and on a short timer, so
+  // a primed destructive control can never be left behind on the toolbar.
+  const [rebuildArmed, setRebuildArmed] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
+  const rebuildTimer = useRef<number | null>(null)
   const [stats, setStats] = useState<UsageStatsRange | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -141,6 +151,45 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
   useEffect(() => {
     void load()
   }, [load])
+
+  // The armed rebuild (see the state note above): arm on the first press,
+  // run on the second, and disarm from blur, Escape, the timer, or unmount.
+  const disarmRebuild = useCallback(() => {
+    if (rebuildTimer.current !== null) {
+      window.clearTimeout(rebuildTimer.current)
+      rebuildTimer.current = null
+    }
+    setRebuildArmed(false)
+  }, [])
+
+  const armRebuild = useCallback(() => {
+    disarmRebuild()
+    setRebuildArmed(true)
+    rebuildTimer.current = window.setTimeout(() => {
+      rebuildTimer.current = null
+      setRebuildArmed(false)
+    }, REBUILD_ARM_MS)
+  }, [disarmRebuild])
+
+  const runRebuild = useCallback(async () => {
+    disarmRebuild()
+    setRebuilding(true)
+    setError('')
+    try {
+      await rebuildStats()
+      // The host wiped the rows and replayed the logs, so both surfaces the
+      // panel draws have to be read again: the range aggregate and the
+      // fixed-window heatmap.
+      await load()
+      await loadHeat()
+    } catch (e) {
+      setError(e instanceof UsageApiError ? e.message : String(e))
+    } finally {
+      setRebuilding(false)
+    }
+  }, [disarmRebuild, load, loadHeat])
+
+  useEffect(() => disarmRebuild, [disarmRebuild])
 
   // A model's colour is its TOKEN rank (the host returns `models` sorted by
   // token volume), matching reasonix: rank 1..10 take --dsw-chart-1..10 and the
@@ -244,6 +293,13 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
   const trendDaily = groupedStats?.daily ?? []
   const trendModels = groupedStats?.models ?? []
 
+  // The rebuild button's label: its idle name, the armed confirm, or the
+  // in-flight state (the ellipsis is glued on here, the way the loading
+  // indicator does it, so no dictionary carries punctuation).
+  const rebuildLabel = rebuilding
+    ? `${t('rebuilding')}…`
+    : rebuildArmed ? t('rebuildConfirm') : t('rebuild')
+
   return (
     <div className={css.panel} data-dsh-usage-glass="panel" ref={panelRef}>
       <div className={css.toolbar}>
@@ -292,15 +348,35 @@ export function UsageStatsPanel({ t }: { t: Translator }): JSX.Element {
             />
           </div>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className={css.refresh}
-          onClick={() => { void load(); void loadHeat() }}
-          disabled={loading}
-        >
-          {t('refresh')}
-        </Button>
+        {/* The two toolbar actions are one flex item, not two: the toolbar
+            wraps, and a pair that wrapped apart would strand the rebuild
+            button on a line of its own. The container owns the trailing auto
+            margin, so the pair rides the right edge together. */}
+        <div className={css.actions}>
+          <Button
+            size="sm"
+            variant="outline"
+            className={css.refresh}
+            onClick={() => { void load(); void loadHeat() }}
+            disabled={loading}
+          >
+            {t('refresh')}
+          </Button>
+          <Tooltip label={t('rebuildHint')} side="top" portal maxWidth={260}>
+            <Button
+              size="sm"
+              variant="outline"
+              className={clsx(css.rebuild, rebuildArmed && css.rebuildArmed)}
+              aria-pressed={rebuildArmed}
+              disabled={rebuilding}
+              onClick={() => { if (rebuildArmed) void runRebuild(); else armRebuild() }}
+              onBlur={disarmRebuild}
+              onKeyDown={(e) => { if (e.key === 'Escape') disarmRebuild() }}
+            >
+              {rebuildLabel}
+            </Button>
+          </Tooltip>
+        </div>
       </div>
 
       {error && <div className={css.errorBanner}>{error}</div>}

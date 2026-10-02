@@ -11,7 +11,7 @@
  * prefix-stripping proxy; the host's own route key stays absolute
  * (`/usage/api` in src/routes.ts), because only the browser half is relative.
  */
-import type { UsageStatsRange, UsageStatsRequest } from '../wire.ts'
+import type { BackfillStatus, UsageStatsRange, UsageStatsRequest } from '../wire.ts'
 
 /** One wire failure. */
 export class UsageApiError extends Error {
@@ -56,4 +56,12 @@ async function post<T>(method: string, body: unknown): Promise<T> {
 /** Aggregate the usage panel renders for one range. */
 export async function fetchRange(req: UsageStatsRequest): Promise<UsageStatsRange> {
   return post<UsageStatsRange>('range', req)
+}
+
+/** Rebuild the statistics from the session logs. The host wipes every row plus
+ *  the backfill cursor and replays all persisted sessions under the current
+ *  attribution rules, so a drifted store converges back onto the logs; it
+ *  refuses (409) only while a boot scan is still running. */
+export async function rebuildStats(): Promise<BackfillStatus> {
+  return post<BackfillStatus>('reset', {})
 }
